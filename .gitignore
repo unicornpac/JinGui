@@ -9,8 +9,9 @@ __pycache__/
 # 环境变量（含API密钥）
 .env
 
-# 数据库文件
+# 数据库文件（仅保留种子数据）
 *.db
+!backend/data/tcm.db
 
 # IDE
 .idea/
