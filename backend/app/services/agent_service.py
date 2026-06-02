@@ -193,9 +193,9 @@ class TrainingAgent:
             step1_status="未完成", step2_status="未完成", step3_status="未完成")
         if self.client:
             resp = self._call_llm(system_prompt, [],
-                "请以模拟患者身份，用口语描述主要不适开始训练。不透露病名和方剂。")
+                "请开始吧。用患者的口吻，向'医生'描述你现在哪里不舒服。口语化，像个真的病人。不透露病名。")
             if resp: return resp
-        return "你好！我准备好了，请开始问诊吧。"
+        return "医生你好，我最近身体不太舒服，想让你帮我看看……"
 
     # ---------- 多轮对话 ----------
 
