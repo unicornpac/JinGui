@@ -107,7 +107,7 @@ class TrainingAgent:
 
     @staticmethod
     def _clean_text(text: str) -> str:
-        if not text: return text
+        if not text: return ""
         text = re.sub(r'^#{1,6}\s+', '', text, flags=re.MULTILINE)
         text = re.sub(r'\*\*([^*]+)\*\*', r'\1', text)
         text = re.sub(r'\*([^*]+)\*', r'\1', text)
@@ -224,7 +224,7 @@ class TrainingAgent:
             history = self._get_history_messages(session_id, db)
             progress = self._analyze_progress(history, session)
             system_prompt = self._build_system_prompt(session, medical_case, progress)
-            agent_response = self._call_llm(system_prompt, history, student_content)
+            agent_response = self._call_llm(system_prompt, history, student_content) or "【系统】AI 返回为空，请重新发送消息。"
             msg_type = self._classify_response(agent_response)
             
             decision_path = session.decision_path or ""
