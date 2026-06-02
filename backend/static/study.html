@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>条文学习</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;background:#f5efe0;color:#3d2b1f;min-height:100vh}
+.header{background:linear-gradient(135deg,#5c3d2e,#8b5a2b);color:#f5efe0;padding:10px 24px;display:flex;align-items:center;gap:16px;box-shadow:0 2px 12px rgba(0,0,0,.2)}
+.header h1{font-size:20px;font-weight:600}
+.header .nav{display:flex;gap:6px;margin-left:auto}
+.header .nav a{color:#e8d5b0;text-decoration:none;padding:6px 14px;border-radius:6px;font-size:14px;transition:.2s}
+.header .nav a:hover,.header .nav a.active{background:rgba(255,255,255,.15);color:#fff}
+.container{max-width:960px;margin:0 auto;padding:20px}
+
+.tabs{display:flex;gap:4px;margin-bottom:16px;background:#fff;border-radius:10px;padding:4px;box-shadow:0 2px 8px rgba(0,0,0,.06);flex-wrap:wrap}
+.tab{padding:10px 16px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;transition:.2s;color:#8a7a6a;white-space:nowrap}
+.tab.active{background:#8b5a2b;color:#fff}
+.tab:hover:not(.active){background:#fdf6ed}
+
+.panel{display:none}
+.panel.active{display:block}
+
+.disease-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px}
+.disease-card{background:#fff;border:1px solid #e8d5b0;border-radius:12px;padding:16px;box-shadow:0 2px 6px rgba(0,0,0,.04);cursor:pointer;transition:.2s}
+.disease-card:hover{border-color:#8b5a2b;transform:translateY(-2px)}
+.disease-card h3{color:#5c3d2e;font-size:17px;margin-bottom:6px}
+.disease-card .desc{color:#8a7a6a;font-size:13px;line-height:1.6;margin-bottom:8px}
+.disease-card .count{font-size:12px;color:#b0a090}
+
+.text-list{display:flex;flex-direction:column;gap:8px;margin-top:16px}
+.text-item{background:#fff;border:1px solid #e8d5b0;border-radius:10px;padding:14px;transition:.2s}
+.text-item:hover{border-color:#8b5a2b}
+.text-item .hdr{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.text-item .src-badge{padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;background:#f0e2cc;color:#8b5a2b;white-space:nowrap}
+.text-item .content{font-size:15px;line-height:1.8}
+.text-item .ai-btn{margin-top:8px;padding:6px 14px;background:#8b5a2b;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px}
+.text-item .ai-btn:hover{background:#6b3f1a}
+.text-item .ai-result{display:none;margin-top:8px;padding:12px;background:#f0e2cc;border-radius:8px;font-size:14px;line-height:1.7}
+.text-item .ai-result.show{display:block}
+
+.search-row{display:flex;gap:10px;margin-bottom:16px}
+.search-row input{flex:1;padding:10px 14px;border:2px solid #e0d5c0;border-radius:10px;font-size:14px;outline:none;font-family:inherit;background:#fff}
+.search-row input:focus{border-color:#8b5a2b}
+.btn{padding:10px 20px;background:#8b5a2b;color:#fff;border:none;border-radius:10px;cursor:pointer;font-size:14px;font-weight:600}
+.btn:hover{background:#6b3f1a}
+.btn-sm{padding:6px 12px;font-size:12px;border-radius:6px}
+.btn-outline{background:#fff;color:#8b5a2b;border:2px solid #8b5a2b}
+.btn-outline:hover{background:#fdf6ed}
+
+.back-btn{margin-bottom:12px;padding:8px 16px;background:#fff;color:#8b5a2b;border:2px solid #8b5a2b;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;display:none}
+.back-btn:hover{background:#fdf6ed}
+
+.empty{text-align:center;color:#b0a090;padding:40px}
+.loading-text{color:#b0a090;font-size:13px}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>📖 条文学习</h1>
+  <div class="nav">
+    <a href="/">管理端</a>
+    <a href="/user">首页</a>
+    <a href="/train">开始训练</a>
+  </div>
+</div>
+
+<div class="container">
+  <div class="tabs" id="mainTabs">
+    <div class="tab active" onclick="showPanel('disease')">🩺 按病证学习</div>
+    <div class="tab" onclick="showPanel('search')">🔍 全文搜索</div>
+  </div>
+
+  <!-- 按病证学习 -->
+  <div class="panel active" id="panelDisease">
+    <div class="disease-grid" id="diseaseGrid"></div>
+    <button class="back-btn" id="backBtn" onclick="backToDisease()">← 返回病证列表</button>
+    <div id="diseaseDetail" style="display:none">
+      <h2 id="detailTitle" style="color:#5c3d2e;margin-bottom:8px;"></h2>
+      <p id="detailDesc" style="color:#8a7a6a;margin-bottom:16px;line-height:1.7;"></p>
+      <div class="text-list" id="detailTexts"></div>
+    </div>
+  </div>
+
+  <!-- 全文搜索 -->
+  <div class="panel" id="panelSearch">
+    <div class="search-row">
+      <input id="searchInput" placeholder="搜索条文内容、关键词、病证名…" onkeydown="if(event.key==='Enter')doSearch()">
+      <button class="btn" onclick="doSearch()">搜索</button>
+      <button class="btn btn-outline" onclick="resetSearch()">重置</button>
+    </div>
+    <div class="text-list" id="searchResults"><div class="empty">输入关键词搜索</div></div>
+  </div>
+</div>
+
+<script>
+const API = '/api';
+let allTexts = [], currentDisease = null;
+
+// 病证定义（来自金匮要略）
+const DISEASES = [
+  { id:'湿病', name:'湿病', desc:'外感风湿所致的关节疼痛、身重等证。《金匮》痉湿暍病篇。代表方：桂枝附子汤、白术附子汤、甘草附子汤、麻杏薏甘汤。', keys:['湿','关节','身重','烦疼','风湿'] },
+  { id:'胸痹', name:'胸痹', desc:'胸阳不振、痰浊痹阻所致的胸闷痛证。《金匮》胸痹心痛短气病篇。代表方：栝楼薤白白酒汤、栝楼薤白半夏汤、枳实薤白桂枝汤。', keys:['胸痹','胸','闷','痛','薤白','栝楼'] },
+  { id:'痰饮', name:'痰饮', desc:'水液代谢失常形成的有形之邪。《金匮》痰饮咳嗽病篇。分痰饮、悬饮、溢饮、支饮四类。代表方：苓桂术甘汤、小青龙汤、十枣汤。', keys:['痰饮','饮','咳','喘','小青龙','苓桂'] },
+  { id:'水气', name:'水气病', desc:'体内水液潴留所致的浮肿病证。《金匮》水气病篇。分风水、皮水、正水、石水。代表方：越婢汤、防己黄芪汤。', keys:['水气','水','肿','浮','小便不利','越婢'] },
+  { id:'虚劳', name:'虚劳', desc:'脏腑气血阴阳亏损的慢性衰弱证。《金匮》血痹虚劳病篇。代表方：黄芪桂枝五物汤、薯蓣丸、肾气丸、酸枣仁汤。', keys:['虚劳','虚','劳','血痹','麻木','乏力','薯蓣','肾气'] },
+  { id:'黄疸', name:'黄疸', desc:'湿热或寒湿所致的黄疸病证。《金匮》黄疸病篇。分谷疸、酒疸、女劳疸。代表方：茵陈蒿汤、栀子大黄汤。', keys:['黄疸','黄','身黄','目黄','小便黄','茵陈'] },
+  { id:'百合病', name:'百合病', desc:'心肺阴虚内热所致的精神恍惚证。《金匮》百合狐惑阴阳毒病篇。代表方：百合地黄汤、百合知母汤。', keys:['百合','恍惚','欲卧不能卧','欲行不能行'] },
+  { id:'腹满寒疝', name:'腹满寒疝', desc:'腹部胀满及寒性腹痛证。《金匮》腹满寒疝宿食病篇。代表方：厚朴七物汤、大建中汤。', keys:['腹满','寒疝','腹痛','腹胀','厚朴'] },
+];
+
+async function init() {
+  try {
+    allTexts = await (await fetch(`${API}/texts?limit=2000`)).json();
+    renderDiseaseGrid();
+  } catch(e) {
+    document.getElementById('diseaseGrid').innerHTML = '<div class="empty">加载失败</div>';
+  }
+}
+
+function showPanel(name) {
+  document.querySelectorAll('#mainTabs .tab').forEach(t => t.classList.toggle('active', false));
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  if (name==='disease') {
+    document.querySelector('#mainTabs .tab:first-child').classList.add('active');
+    document.getElementById('panelDisease').classList.add('active');
+  } else {
+    document.querySelector('#mainTabs .tab:last-child').classList.add('active');
+    document.getElementById('panelSearch').classList.add('active');
+  }
+}
+
+function renderDiseaseGrid() {
+  const counts = {};
+  DISEASES.forEach(d => {
+    counts[d.id] = allTexts.filter(t => d.keys.some(k => (t.content||'').includes(k) || (t.keywords||'').includes(k))).length;
+  });
+  document.getElementById('diseaseGrid').innerHTML = DISEASES.map(d => `
+    <div class="disease-card" onclick="showDisease('${d.id}')">
+      <h3>${d.name}</h3>
+      <div class="desc">${d.desc.substring(0,80)}...</div>
+      <div class="count">📄 相关条文：${counts[d.id]} 条</div>
+    </div>
+  `).join('');
+}
+
+function showDisease(id) {
+  currentDisease = id;
+  const d = DISEASES.find(x => x.id === id);
+  if (!d) return;
+  document.getElementById('diseaseGrid').style.display = 'none';
+  document.getElementById('backBtn').style.display = 'inline-block';
+  document.getElementById('diseaseDetail').style.display = 'block';
+  document.getElementById('detailTitle').textContent = '🩺 ' + d.name;
+  document.getElementById('detailDesc').textContent = d.desc;
+  
+  const texts = allTexts.filter(t => d.keys.some(k => (t.content||'').includes(k) || (t.keywords||'').includes(k)));
+  const el = document.getElementById('detailTexts');
+  if (!texts.length) { el.innerHTML = '<div class="empty">暂无相关条文</div>'; return; }
+  el.innerHTML = texts.slice(0, 30).map((t,i) => `
+    <div class="text-item">
+      <div class="hdr"><span class="src-badge">${esc(t.source_book)}</span> ${t.chapter?esc(t.chapter):''} <span style="color:#b0a090;font-size:11px;margin-left:auto">ID:${t.id}</span></div>
+      <div class="content">${esc(t.content)}</div>
+      ${t.keywords ? `<div style="color:#8b5a2b;font-size:12px;margin-top:4px;">关键词：${esc(t.keywords)}</div>` : ''}
+      <button class="ai-btn" onclick="aiExplain(event,${t.id},${i},'${id}')">🤖 AI 解读</button>
+      <div class="ai-result" id="aiRes${id}${i}"></div>
+    </div>
+  `).join('');
+}
+
+function backToDisease() {
+  document.getElementById('diseaseGrid').style.display = 'grid';
+  document.getElementById('backBtn').style.display = 'none';
+  document.getElementById('diseaseDetail').style.display = 'none';
+  currentDisease = null;
+}
+
+async function aiExplain(ev, textId, idx, diseaseId) {
+  const box = document.getElementById('aiRes'+diseaseId+idx);
+  if (box.classList.contains('show')) { box.classList.remove('show'); return; }
+  box.classList.add('show');
+  box.textContent = '解读中…';
+  const t = allTexts.find(x => x.id === textId);
+  if (!t) { box.textContent = '找不到该条文'; return; }
+  const d = DISEASES.find(x => x.id === diseaseId);
+  try {
+    const resp = await fetch(`${API}/analysis/query`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ text: `作为中医教学助手，请对以下条文进行简明解读（控制在200字以内）。\n\n病证背景：${d?d.name+'——'+d.desc:''}\n条文：${t.content}\n来源：${t.source_book} ${t.chapter||''}\n\n请从：核心含义、辨证要点、临床应用三个角度简要说明。` })
+    });
+    const data = await resp.json();
+    box.textContent = data.analysis_result || '解读失败';
+  } catch(e) {
+    box.textContent = 'AI 解读失败';
+  }
+}
+
+function doSearch() {
+  const q = document.getElementById('searchInput').value.trim().toLowerCase();
+  const el = document.getElementById('searchResults');
+  if (!q) { el.innerHTML = '<div class="empty">输入关键词搜索</div>'; return; }
+  const texts = allTexts.filter(t => (t.content||'').toLowerCase().includes(q) || (t.keywords||'').toLowerCase().includes(q) || (t.source_book||'').toLowerCase().includes(q));
+  if (!texts.length) { el.innerHTML = '<div class="empty">未找到匹配条文</div>'; return; }
+  el.innerHTML = texts.slice(0, 40).map(t => `
+    <div class="text-item">
+      <div class="hdr"><span class="src-badge">${esc(t.source_book)}</span> ${t.chapter?esc(t.chapter):''}</div>
+      <div class="content">${esc(t.content)}</div>
+    </div>
+  `).join('');
+}
+function resetSearch() { document.getElementById('searchInput').value=''; document.getElementById('searchResults').innerHTML='<div class="empty">输入关键词搜索</div>'; }
+
+function esc(s){if(!s)return'';const d=document.createElement('div');d.textContent=s;return d.innerHTML}
+init();
+</script>
+</body>
+</html>

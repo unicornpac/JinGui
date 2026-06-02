@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>教师管理端 - 《金匮要略》临床思辨训练</title>
+<style>
+:root {
+  --bg: #f5efe0; --card: #fff; --text: #3d2b1f; --muted: #8a7a6a;
+  --primary: #8b5a2b; --border: #e0d5c0; --hover: #fdfaf3;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family: -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif; background:var(--bg); color:var(--text); min-height:100vh; }
+.header {
+  background:linear-gradient(135deg, #5c3d2e 0%, #8b5a2b 100%);
+  color:#f5efe0; padding:10px 24px; display:flex; align-items:center; gap:16px;
+  box-shadow:0 2px 12px rgba(0,0,0,.2);
+}
+.header h1 { font-size:20px; font-weight:600; letter-spacing:1px; }
+.header .nav { display:flex; gap:6px; margin-left:auto; }
+.header .nav a { color:#e8d5b0; text-decoration:none; padding:6px 14px; border-radius:6px; font-size:14px; transition:.2s; }
+.header .nav a:hover, .header .nav a.active { background:rgba(255,255,255,.15); color:#fff; }
+.container { max-width:1200px; margin:0 auto; padding:20px; }
+
+.stats { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:20px; }
+.stat-card { background:var(--card); border-radius:12px; padding:18px; box-shadow:0 2px 8px rgba(0,0,0,.06); }
+.stat-card .n { font-size:32px; font-weight:700; color:var(--primary); }
+.stat-card .l { font-size:13px; color:var(--muted); margin-top:4px; }
+
+.tabs { display:flex; gap:4px; margin-bottom:20px; background:var(--card); border-radius:10px; padding:4px; box-shadow:0 2px 8px rgba(0,0,0,.06); }
+.tab { flex:1; text-align:center; padding:10px; border-radius:8px; cursor:pointer; font-size:14px; font-weight:600; transition:.2s; color:var(--muted); }
+.tab.active { background:var(--primary); color:#fff; }
+.tab:hover:not(.active) { background:var(--hover); }
+
+.panel { display:none; }
+.panel.active { display:block; }
+
+.card { background:var(--card); border-radius:12px; padding:20px; box-shadow:0 2px 8px rgba(0,0,0,.06); margin-bottom:16px; }
+
+.filters { display:flex; gap:10px; margin-bottom:16px; flex-wrap:wrap; align-items:center; }
+.filters select, .filters input, .form-input {
+  padding:8px 12px; border:2px solid var(--border); border-radius:8px; font-size:14px; outline:none; background:var(--card);
+}
+.filters select:focus, .filters input:focus, .form-input:focus { border-color:var(--primary); }
+.btn {
+  padding:8px 16px; border:none; border-radius:8px; cursor:pointer; font-size:14px; font-weight:600; transition:.2s;
+}
+.btn-primary { background:var(--primary); color:#fff; }
+.btn-primary:hover { background:#6b3f1a; }
+.btn-primary:disabled { background:#c4b49a; cursor:not-allowed; }
+.btn-outline { background:var(--card); color:var(--primary); border:2px solid var(--primary); }
+.btn-outline:hover { background:var(--hover); }
+.btn-sm { padding:4px 12px; font-size:12px; border-radius:6px; }
+.btn-view { background:var(--primary); color:#fff; }
+.btn-view:hover { background:#6b3f1a; }
+.btn-del { background:#f8d7da; color:#721c24; }
+.btn-del:hover { background:#f1c0c2; }
+
+table { width:100%; border-collapse:collapse; font-size:14px; }
+th { text-align:left; padding:10px 12px; border-bottom:2px solid var(--border); color:#5c3d2e; font-weight:600; }
+td { padding:10px 12px; border-bottom:1px solid #f0e8d8; }
+tr:hover td { background:var(--hover); }
+.badge { display:inline-block; padding:3px 10px; border-radius:12px; font-size:12px; font-weight:600; }
+.bg-beginner { background:#f0e2cc; color:var(--primary); }
+.bg-intermediate { background:#fff3cd; color:#856404; }
+.bg-advanced { background:#f8d7da; color:#721c24; }
+.bg-active { background:#d4edda; color:#155724; }
+.bg-completed { background:#d1ecf1; color:#0c5460; }
+
+.form-row { margin-bottom:12px; }
+.form-row label { display:block; margin-bottom:4px; font-size:13px; color:var(--muted); }
+.form-row input, .form-row textarea, .form-row select {
+  width:100%; padding:8px 12px; border:2px solid var(--border); border-radius:8px; font-size:14px; font-family:inherit; outline:none;
+}
+.form-row textarea { min-height:80px; resize:vertical; }
+
+/* 弹窗 */
+.modal-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:100; align-items:center; justify-content:center; }
+.modal-overlay.show { display:flex; }
+.modal {
+  background:var(--card); border-radius:16px; width:90%; max-width:750px; max-height:85vh;
+  overflow-y:auto; padding:24px; box-shadow:0 8px 32px rgba(0,0,0,.2);
+}
+.modal h3 { color:#5c3d2e; margin-bottom:14px; font-size:18px; }
+.chat-replay { background:#faf7f0; border-radius:10px; padding:14px; max-height:400px; overflow-y:auto; }
+.chat-replay .rpl { margin-bottom:10px; padding:8px 12px; border-radius:8px; line-height:1.5; font-size:14px; }
+.chat-replay .rpl-student { background:var(--primary); color:#fff; margin-left:30px; }
+.chat-replay .rpl-agent { background:var(--card); border:1px solid var(--border); margin-right:30px; }
+.chat-replay .rpl-system { text-align:center; color:var(--muted); font-size:12px; }
+
+.upload-zone {
+  border:2px dashed #d4c4a8; border-radius:12px; padding:40px; text-align:center;
+  cursor:pointer; transition:.2s; margin-bottom:16px;
+}
+.upload-zone:hover { border-color:var(--primary); background:var(--hover); }
+.upload-zone .icon { font-size:40px; margin-bottom:8px; }
+
+.toast {
+  position:fixed; bottom:20px; right:20px; padding:12px 20px; border-radius:10px;
+  color:#fff; font-weight:600; z-index:200; animation:fadeIn .3s;
+}
+.toast.success { background:#5a8a3c; }
+.toast.error { background:#c0392b; }
+@keyframes fadeIn { from{opacity:0;transform:translateY(8px);} to{opacity:1;transform:translateY(0);} }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>📜 教师管理端</h1>
+  <div class="nav">
+    <a href="/" class="active">管理端</a>
+    <a href="/user">首页</a>
+    <a href="/train">开始训练</a>
+  </div>
+</div>
+
+<div class="container">
+  <div class="stats">
+    <div class="stat-card"><div class="n" id="sTotal">0</div><div class="l">总训练次数</div></div>
+    <div class="stat-card"><div class="n" id="sActive">0</div><div class="l">进行中</div></div>
+    <div class="stat-card"><div class="n" id="sDone">0</div><div class="l">已完成</div></div>
+    <div class="stat-card"><div class="n" id="sAvg">--</div><div class="l">平均评分</div></div>
+  </div>
+
+  <div class="tabs">
+    <div class="tab active" onclick="switchTab('train')">🧠 训练记录</div>
+    <div class="tab" onclick="switchTab('cases')">📋 病案管理</div>
+    <div class="tab" onclick="switchTab('upload')">📤 文档上传</div>
+    <div class="tab" onclick="switchTab('analysis')">🔬 AI分析</div>
+  </div>
+
+  <!-- 训练记录 -->
+  <div class="panel active" id="pTrain">
+    <div class="card">
+      <div class="filters">
+        <select id="fDiff" onchange="loadTrain()"><option value="">全部难度</option><option value="初级">初级</option><option value="中级">中级</option><option value="高级">高级</option></select>
+        <select id="fStatus" onchange="loadTrain()"><option value="">全部状态</option><option value="active">训练中</option><option value="completed">已完成</option></select>
+        <button class="btn btn-primary" onclick="loadTrain()">🔄 刷新</button>
+      </div>
+      <table><thead><tr><th>ID</th><th>学生</th><th>难度</th><th>病案</th><th>状态</th><th>轮数</th><th>评分</th><th>时间</th><th>操作</th></tr></thead>
+      <tbody id="trainTbody"><tr><td colspan="9" style="text-align:center;color:var(--muted);padding:30px;">加载中…</td></tr></tbody></table>
+    </div>
+  </div>
+
+  <!-- 病案管理 -->
+  <div class="panel" id="pCases">
+    <div class="card">
+      <h3 style="margin-bottom:12px;">新增病案</h3>
+      <div class="form-row"><label>标题</label><input id="cTitle" class="form-input"></div>
+      <div class="form-row"><label>病案内容</label><textarea id="cContent" class="form-input" rows="4"></textarea></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div class="form-row"><label>诊断</label><input id="cDiag" class="form-input"></div>
+        <div class="form-row"><label>方剂</label><input id="cPresc" class="form-input"></div>
+        <div class="form-row"><label>难度</label><select id="cDiff" class="form-input"><option value="初级">初级</option><option value="中级">中级</option><option value="高级">高级</option></select></div>
+        <div class="form-row"><label>教学要点</label><input id="cTeach" class="form-input"></div>
+      </div>
+      <button class="btn btn-primary" onclick="createCase()">保存病案</button>
+    </div>
+    <div class="card">
+      <div class="filters">
+        <select id="cfDiff" onchange="loadCases()"><option value="">全部难度</option><option value="初级">初级</option><option value="中级">中级</option><option value="高级">高级</option></select>
+        <button class="btn btn-primary" onclick="loadCases()">🔄 刷新</button>
+      </div>
+      <table><thead><tr><th>ID</th><th>标题</th><th>难度</th><th>诊断</th><th>方剂</th><th>操作</th></tr></thead>
+      <tbody id="caseTbody"><tr><td colspan="6" style="text-align:center;color:var(--muted);padding:30px;">加载中…</td></tr></tbody></table>
+    </div>
+  </div>
+
+  <!-- 文档上传 -->
+  <div class="panel" id="pUpload">
+    <div class="card">
+      <div class="upload-zone" onclick="document.getElementById('fileInp').click()">
+        <div class="icon">📄</div><p style="font-size:15px;">点击上传文档</p>
+        <p style="font-size:12px;color:var(--muted);margin-top:4px;">PDF / Word / Excel / TXT，自动解析条文和病案</p>
+      </div>
+      <input type="file" id="fileInp" style="display:none" accept=".pdf,.docx,.doc,.xlsx,.xls,.txt" onchange="uploadFile(this)">
+      <div id="docList" style="display:flex;flex-direction:column;gap:8px;"></div>
+    </div>
+    <div class="card">
+      <h3 style="margin-bottom:12px;">手动录入条文</h3>
+      <div class="form-row"><label>来源经典</label><input id="txtSource" class="form-input" placeholder="如《伤寒论》《金匮要略》"></div>
+      <div class="form-row"><label>章节（可选）</label><input id="txtChapter" class="form-input" placeholder="如 辨太阳病脉证并治"></div>
+      <div class="form-row"><label>条文内容</label><textarea id="txtContent" class="form-input" rows="3" placeholder="输入条文全文"></textarea></div>
+      <div class="form-row"><label>关键词（逗号分隔，可选）</label><input id="txtKeywords" class="form-input" placeholder="如 太阳,中风,桂枝"></div>
+      <button class="btn btn-primary" onclick="addText()">录入条文</button>
+    </div>
+  </div>
+
+  <!-- AI分析 -->
+  <div class="panel" id="pAnalysis">
+    <div class="card">
+      <div id="aiStatus" style="margin-bottom:12px;font-size:13px;color:var(--muted);"></div>
+      <div class="form-row"><label>输入条文内容</label><textarea id="aInput" class="form-input" rows="4" placeholder="输入或粘贴条文内容…"></textarea></div>
+      <button class="btn btn-primary" onclick="doAnalysis()">分析</button>
+      <div id="aResult" style="margin-top:16px;"></div>
+    </div>
+  </div>
+</div>
+
+<!-- 会话详情弹窗 -->
+<div class="modal-overlay" id="detailModal">
+  <div class="modal">
+    <h3>📋 训练详情回放</h3>
+    <div id="dInfo" style="margin-bottom:14px;font-size:14px;color:var(--muted);"></div>
+    <div class="chat-replay" id="dChat"></div>
+    <div style="margin-top:16px;text-align:right;">
+      <button class="btn btn-primary btn-sm" onclick="document.getElementById('detailModal').classList.remove('show')">关闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- 编辑病案弹窗 -->
+<div class="modal-overlay" id="caseEditModal">
+  <div class="modal">
+    <h3>编辑病案</h3>
+    <div class="form-row"><label>标题</label><input id="ceTitle" class="form-input"></div>
+    <div class="form-row"><label>病案内容</label><textarea id="ceContent" class="form-input" rows="5"></textarea></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+      <div class="form-row"><label>诊断</label><input id="ceDiag" class="form-input"></div>
+      <div class="form-row"><label>方剂</label><input id="cePresc" class="form-input"></div>
+      <div class="form-row"><label>难度</label><select id="ceDiff" class="form-input"><option value="初级">初级</option><option value="中级">中级</option><option value="高级">高级</option></select></div>
+      <div class="form-row"><label>教学要点</label><input id="ceTeach" class="form-input"></div>
+    </div>
+    <div style="margin-top:14px;display:flex;justify-content:flex-end;gap:8px;">
+      <button class="btn btn-del btn-sm" onclick="document.getElementById('caseEditModal').classList.remove('show')">取消</button>
+      <button class="btn btn-primary btn-sm" onclick="saveCaseEdit()">保存</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = '/api'; let editingCaseId = null;
+
+// Tab
+function switchTab(n) {
+  const map = { train:'训练记录', cases:'病案管理', upload:'文档上传', analysis:'AI分析' };
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.textContent.includes(map[n])));
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.getElementById('p'+n.charAt(0).toUpperCase()+n.slice(1)).classList.add('active');
+  if (n==='train') loadTrain();
+  if (n==='cases') loadCases();
+  if (n==='upload') loadDocs();
+  if (n==='analysis') loadAiStatus();
+}
+
+// === 训练记录 ===
+async function loadTrain() {
+  const d = document.getElementById('fDiff').value, s = document.getElementById('fStatus').value;
+  let url = `${API}/agent/sessions?limit=100`;
+  if (d) url += `&difficulty_level=${encodeURIComponent(d)}`;
+  if (s) url += `&status=${s}`;
+  try {
+    const data = await (await fetch(url)).json();
+    const tbody = document.getElementById('trainTbody');
+    if (!data.length) { tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:30px;">暂无训练记录</td></tr>'; }
+    else {
+      tbody.innerHTML = data.map(r => `
+        <tr>
+          <td>${r.id}</td><td>${r.student_id||'--'}</td>
+          <td><span class="badge bg-${r.difficulty_level==='初级'?'beginner':r.difficulty_level==='中级'?'intermediate':'advanced'}">${r.difficulty_level}</span></td>
+          <td>${(r.case_title||'--').substring(0,20)}</td>
+          <td><span class="badge bg-${r.status}">${r.status==='active'?'训练中':'已完成'}</span></td>
+          <td>${r.message_count||0}</td><td>${r.score||'--'}</td>
+          <td>${(r.started_at||'').substring(0,10)}</td>
+          <td><button class="btn btn-view btn-sm" onclick="viewSession(${r.id})">查看</button> <button class="btn btn-del btn-sm" onclick="delSession(${r.id})">删除</button></td>
+        </tr>`).join('');
+    }
+    document.getElementById('sTotal').textContent = data.length;
+    document.getElementById('sActive').textContent = data.filter(r=>r.status==='active').length;
+    document.getElementById('sDone').textContent = data.filter(r=>r.status==='completed').length;
+    const scored = data.filter(r=>r.score&&r.score!=='未评分'&&!isNaN(parseFloat(r.score)));
+    document.getElementById('sAvg').textContent = scored.length ? Math.round(scored.reduce((a,b)=>a+parseFloat(b.score),0)/scored.length) + '分' : '--';
+  } catch(e) { document.getElementById('trainTbody').innerHTML = '<tr><td colspan="9" style="text-align:center;color:#c0392b;padding:30px;">加载失败</td></tr>'; }
+}
+
+async function viewSession(id) {
+  const data = await (await fetch(`${API}/agent/session/${id}`)).json();
+  document.getElementById('dInfo').innerHTML = `学生：${data.student_id} | 难度：${data.difficulty_level} | 病案：${data.case_title||'--'} | 评分：${data.score||'--'}`;
+  document.getElementById('dChat').innerHTML = (data.messages||[]).map(m => `
+    <div class="rpl rpl-${m.role==='student'?'student':m.role==='agent'?'agent':'system'}">
+      ${m.role==='agent'&&m.message_type?`<span class="badge bg-${m.message_type==='praise'?'active':m.message_type==='evaluation'?'completed':'intermediate'}" style="font-size:10px">${m.message_type}</span><br>`:''}${m.content}
+    </div>`).join('');
+  document.getElementById('detailModal').classList.add('show');
+}
+
+async function delSession(id) { if (!confirm('确定删除？')) return; await fetch(`${API}/agent/session/${id}`,{method:'DELETE'}); toast('已删除','success'); loadTrain(); }
+
+// === 病案管理 ===
+async function createCase() {
+  const data = {
+    title: document.getElementById('cTitle').value,
+    content: document.getElementById('cContent').value,
+    diagnosis: document.getElementById('cDiag').value,
+    prescription: document.getElementById('cPresc').value,
+    difficulty_level: document.getElementById('cDiff').value,
+    teaching_points: document.getElementById('cTeach').value
+  };
+  if (!data.title || !data.content) { toast('标题和内容不能为空','error'); return; }
+  try {
+    await fetch(`${API}/cases/`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+    toast('保存成功','success');
+    ['cTitle','cContent','cDiag','cPresc','cTeach'].forEach(id => document.getElementById(id).value='');
+    loadCases();
+  } catch(e) { toast('保存失败: '+e.message,'error'); }
+}
+
+async function loadCases() {
+  const diff = document.getElementById('cfDiff').value;
+  try {
+    const data = await (await fetch(`${API}/cases/?limit=100`)).json();
+    const filtered = diff ? data.filter(c => c.difficulty_level === diff) : data;
+    const tbody = document.getElementById('caseTbody');
+    if (!filtered.length) { tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:30px;">暂无病案</td></tr>'; return; }
+    tbody.innerHTML = filtered.map(c => `
+      <tr><td>${c.id}</td><td>${(c.title||'').substring(0,25)}</td>
+      <td><span class="badge bg-${c.difficulty_level==='初级'?'beginner':c.difficulty_level==='中级'?'intermediate':'advanced'}">${c.difficulty_level||'初级'}</span></td>
+      <td>${(c.diagnosis||'--').substring(0,20)}</td><td>${(c.prescription||'--').substring(0,20)}</td>
+      <td><button class="btn btn-view btn-sm" onclick="editCase(${c.id})">编辑</button></td></tr>`).join('');
+  } catch(e) { document.getElementById('caseTbody').innerHTML = '<tr><td colspan="6" style="text-align:center;color:#c0392b;padding:30px;">加载失败</td></tr>'; }
+}
+
+async function editCase(id) {
+  const c = await (await fetch(`${API}/cases/${id}`)).json();
+  editingCaseId = id;
+  document.getElementById('ceTitle').value = c.title||'';
+  document.getElementById('ceContent').value = c.content||'';
+  document.getElementById('ceDiag').value = c.diagnosis||'';
+  document.getElementById('cePresc').value = c.prescription||'';
+  document.getElementById('ceDiff').value = c.difficulty_level||'初级';
+  document.getElementById('ceTeach').value = c.teaching_points||'';
+  document.getElementById('caseEditModal').classList.add('show');
+}
+
+async function saveCaseEdit() {
+  if (!editingCaseId) return;
+  const data = {
+    title: document.getElementById('ceTitle').value,
+    content: document.getElementById('ceContent').value,
+    diagnosis: document.getElementById('ceDiag').value,
+    prescription: document.getElementById('cePresc').value,
+    difficulty_level: document.getElementById('ceDiff').value,
+    teaching_points: document.getElementById('ceTeach').value
+  };
+  try {
+    await fetch(`${API}/cases/${editingCaseId}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+    document.getElementById('caseEditModal').classList.remove('show');
+    toast('保存成功','success'); loadCases();
+  } catch(e) { toast('保存失败: '+e.message,'error'); }
+}
+
+// === 手动录入条文 ===
+async function addText() {
+  const source = document.getElementById('txtSource').value.trim();
+  const content = document.getElementById('txtContent').value.trim();
+  if (!source || !content) { toast('来源经典和条文内容不能为空','error'); return; }
+  const data = {
+    source_book: source,
+    chapter: document.getElementById('txtChapter').value.trim() || null,
+    content: content,
+    keywords: document.getElementById('txtKeywords').value.trim() || null
+  };
+  try {
+    await fetch(`${API}/texts/`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+    toast('条文录入成功','success');
+    document.getElementById('txtSource').value = '';
+    document.getElementById('txtChapter').value = '';
+    document.getElementById('txtContent').value = '';
+    document.getElementById('txtKeywords').value = '';
+  } catch(e) { toast('录入失败: '+e.message,'error'); }
+}
+
+// === 文档上传 ===
+async function uploadFile(inp) {
+  const f = inp.files[0]; if (!f) return;
+  const fd = new FormData(); fd.append('file', f);
+  try {
+    const r = await (await fetch(`${API}/documents/upload`,{method:'POST',body:fd})).json();
+    toast(r.message||'上传成功', r.success?'success':'error');
+    inp.value = ''; loadDocs();
+  } catch(e) { toast('上传失败','error'); }
+}
+
+async function loadDocs() {
+  try {
+    const data = await (await fetch(`${API}/documents/?limit=50`)).json();
+    document.getElementById('docList').innerHTML = data.length ? data.map(d =>
+      `<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--hover);border-radius:8px;font-size:13px;">
+        <span>📄 ${d.filename} <span style="color:var(--muted);font-size:11px;">(${d.status})</span></span>
+        <span style="color:var(--muted);font-size:11px;">${(d.upload_date||'').substring(0,10)}</span>
+      </div>`).join('') : '<div style="text-align:center;color:var(--muted);padding:20px;">暂无文档</div>';
+  } catch(e) {}
+}
+
+// === AI分析 ===
+async function loadAiStatus() {
+  try {
+    const s = await (await fetch(`${API}/analysis/status`)).json();
+    document.getElementById('aiStatus').textContent = s.configured ? `✅ AI已接入：${s.provider}` : '⚠️ AI未配置，仅支持检索';
+  } catch(e) { document.getElementById('aiStatus').textContent = ''; }
+}
+
+async function doAnalysis() {
+  const text = document.getElementById('aInput').value.trim();
+  if (!text) { toast('请输入条文内容','error'); return; }
+  document.getElementById('aResult').innerHTML = '分析中…';
+  try {
+    const r = await (await fetch(`${API}/analysis/query`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text})})).json();
+    document.getElementById('aResult').innerHTML = `<div class="card"><div style="white-space:pre-wrap;line-height:1.7;">${escapeHtml(r.analysis_result)}</div></div>`;
+  } catch(e) { document.getElementById('aResult').innerHTML = `<div style="color:#c0392b;">分析失败：${e.message}</div>`; }
+}
+
+// === 工具 ===
+function toast(msg, type) {
+  const t = document.createElement('div'); t.className = 'toast ' + type; t.textContent = msg;
+  document.body.appendChild(t); setTimeout(() => t.remove(), 2500);
+}
+function escapeHtml(s) { if (!s) return ''; const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+// 初始化
+loadTrain(); loadDocs(); loadAiStatus();
+</script>
+</body>
+</html>
