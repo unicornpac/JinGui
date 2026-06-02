@@ -246,7 +246,7 @@ class TrainingAgent:
     def _get_history_messages(self, session_id: int, db: Session) -> List[dict]:
         messages = db.query(SessionMessage).filter(
             SessionMessage.session_id == session_id).order_by(SessionMessage.created_at).all()
-        return [{"role": "assistant" if m.role == "agent" else m.role, "content": m.content} for m in messages[-20:]]
+        return [{"role": "assistant" if m.role == "agent" else ("user" if m.role == "student" else m.role), "content": m.content} for m in messages[-20:]]
 
     def _analyze_progress(self, history: List[dict], session: TrainingSession) -> dict:
         progress = {"辨病": False, "平脉": False, "析证": False, "定治": False,
