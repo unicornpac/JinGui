@@ -173,22 +173,40 @@ http://localhost:8000/docs     # API 文档
 
 ---
 
-## 当前状态
+## 当前状态（2026-06-02 更新）
 
-- **数据**：136条条文（伤寒论为主）+ 7例训练病案（初级3/中级2/高级2）
-- **AI**：已配置 Linvk 密钥，模型 `deepseek/deepseek-v4-flash`
-- **可用**：本地完全可运行，外网分享待解决
-- **待做**：前端仍需优化、部署方案待定
+- **部署**：阿里云 ECS `121.40.170.154:8000`，systemd 开机自启
+- **数据**：396条条文（伤寒论398条） + 7例训练病案
+- **AI**：DeepSeek 官方 API，模型 `deepseek-chat`
+- **前端**：4个页面，管理端已加条文管理面板，study 页已分金匮/伤寒两组
+- **提示词**：重构为纯患者角色，含人格系统+情绪升级+贴吧老哥模式
 
----
+## 部署信息
+
+- **服务器**：阿里云 ECS，2核4G，Ubuntu 22.04
+- **公网 IP**：`121.40.170.154`
+- **端口**：8000（安全组已开放）
+- **systemd 服务**：`/etc/systemd/system/jingui.service`（开机自启）
+- **更新命令**：VNC 登录后下载文件 → `systemctl restart jingui`
 
 ## 关键配置
 
-`.env` 文件：
+`.env` 文件（本地）：
 ```
-OPENAI_BASE_URL=https://ai.linvk.com/v1
-OPENAI_API_KEY=sk-zBM4DCxwpGMh58JaCTBWRFzPwvMIoGDaF1aW0JL7Ym8dpini
-AI_MODEL=deepseek/deepseek-v4-flash
+OPENAI_BASE_URL=https://api.deepseek.com
+OPENAI_API_KEY=sk-aa2c5697a8214fcd909c6ed6e63f29bf
+AI_MODEL=deepseek-chat
 ```
 
-修改 AI 对话风格：编辑 `app/services/prompts_config.py`
+服务器 systemd 环境变量同上。
+
+## 最近改进
+
+12. ✅ 迁移至 DeepSeek 官方 API（更快更稳定）
+13. ✅ 提示词重构：AI 纯患者角色，禁用教师行为
+14. ✅ 患者人格系统：语气风格池+情绪升级+贴吧老哥模式
+15. ✅ 导入伤寒论398条全文
+16. ✅ Study 页面：金匮要略/伤寒论分组显示
+17. ✅ 管理端新增条文管理面板（CRUD+批量删除）
+18. ✅ 修复 AI 空返回导致数据库写入失败
+19. ✅ 修复 DeepSeek API 角色映射（student→user）
