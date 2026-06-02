@@ -126,6 +126,7 @@ tr:hover td { background:var(--hover); }
   <div class="tabs">
     <div class="tab active" onclick="switchTab('train')">🧠 训练记录</div>
     <div class="tab" onclick="switchTab('cases')">📋 病案管理</div>
+    <div class="tab" onclick="switchTab('texts')">📜 条文管理</div>
     <div class="tab" onclick="switchTab('upload')">📤 文档上传</div>
     <div class="tab" onclick="switchTab('analysis')">🔬 AI分析</div>
   </div>
@@ -164,6 +165,27 @@ tr:hover td { background:var(--hover); }
       </div>
       <table><thead><tr><th>ID</th><th>标题</th><th>难度</th><th>诊断</th><th>方剂</th><th>操作</th></tr></thead>
       <tbody id="caseTbody"><tr><td colspan="6" style="text-align:center;color:var(--muted);padding:30px;">加载中…</td></tr></tbody></table>
+    </div>
+  </div>
+
+  <!-- 条文管理 -->
+  <div class="panel" id="pTexts">
+    <div class="card">
+      <h3 style="margin-bottom:12px;">新增条文</h3>
+      <div class="form-row"><label>来源经典</label><input id="tSource" class="form-input" placeholder="如《伤寒论》《金匮要略》"></div>
+      <div class="form-row"><label>章节（可选）</label><input id="tChapter" class="form-input" placeholder="如 辨太阳病脉证并治"></div>
+      <div class="form-row"><label>条文内容</label><textarea id="tContent" class="form-input" rows="3" placeholder="输入条文全文"></textarea></div>
+      <div class="form-row"><label>关键词（逗号分隔，可选）</label><input id="tKeywords" class="form-input" placeholder="如 太阳,中风,桂枝"></div>
+      <button class="btn btn-primary" onclick="createText()">保存条文</button>
+    </div>
+    <div class="card">
+      <div class="filters">
+        <select id="tfSource" onchange="loadTexts()"><option value="">全部经典</option><option value="《伤寒论》">《伤寒论》</option><option value="《金匮要略》">《金匮要略》</option></select>
+        <button class="btn btn-primary" onclick="loadTexts()">🔄 刷新</button>
+        <button class="btn btn-del" onclick="batchDeleteTexts()" style="margin-left:auto;">🗑 批量删除选中</button>
+      </div>
+      <table><thead><tr><th><input type="checkbox" onclick="toggleAllTexts(this)" title="全选"></th><th>ID</th><th>来源</th><th>章节</th><th>条文内容</th><th>关键词</th><th>操作</th></tr></thead>
+      <tbody id="textTbody"><tr><td colspan="7" style="text-align:center;color:var(--muted);padding:30px;">加载中…</td></tr></tbody></table>
     </div>
   </div>
 
@@ -229,17 +251,33 @@ tr:hover td { background:var(--hover); }
   </div>
 </div>
 
+<!-- 编辑条文弹窗 -->
+<div class="modal-overlay" id="textEditModal">
+  <div class="modal">
+    <h3>编辑条文</h3>
+    <div class="form-row"><label>来源经典</label><input id="teSource" class="form-input"></div>
+    <div class="form-row"><label>章节</label><input id="teChapter" class="form-input"></div>
+    <div class="form-row"><label>条文内容</label><textarea id="teContent" class="form-input" rows="4"></textarea></div>
+    <div class="form-row"><label>关键词</label><input id="teKeywords" class="form-input"></div>
+    <div style="margin-top:14px;display:flex;justify-content:flex-end;gap:8px;">
+      <button class="btn btn-del btn-sm" onclick="document.getElementById('textEditModal').classList.remove('show')">取消</button>
+      <button class="btn btn-primary btn-sm" onclick="saveTextEdit()">保存</button>
+    </div>
+  </div>
+</div>
+
 <script>
-const API = '/api'; let editingCaseId = null;
+const API = '/api'; let editingCaseId = null, editingTextId = null;
 
 // Tab
 function switchTab(n) {
-  const map = { train:'训练记录', cases:'病案管理', upload:'文档上传', analysis:'AI分析' };
+  const map = { train:'训练记录', cases:'病案管理', texts:'条文管理', upload:'文档上传', analysis:'AI分析' };
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.textContent.includes(map[n])));
   document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
   document.getElementById('p'+n.charAt(0).toUpperCase()+n.slice(1)).classList.add('active');
   if (n==='train') loadTrain();
   if (n==='cases') loadCases();
+  if (n==='texts') loadTexts();
   if (n==='upload') loadDocs();
   if (n==='analysis') loadAiStatus();
 }
@@ -369,6 +407,90 @@ async function addText() {
     document.getElementById('txtKeywords').value = '';
   } catch(e) { toast('录入失败: '+e.message,'error'); }
 }
+
+// === 条文管理（表格CRUD） ===
+async function createText() {
+  const source = document.getElementById('tSource').value.trim();
+  const content = document.getElementById('tContent').value.trim();
+  if (!source || !content) { toast('来源和内容不能为空','error'); return; }
+  try {
+    await fetch(`${API}/texts/`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+      source_book: source,
+      chapter: document.getElementById('tChapter').value.trim() || null,
+      content: content,
+      keywords: document.getElementById('tKeywords').value.trim() || null
+    })});
+    toast('保存成功','success');
+    ['tSource','tChapter','tContent','tKeywords'].forEach(id => document.getElementById(id).value='');
+    loadTexts();
+  } catch(e) { toast('保存失败: '+e.message,'error'); }
+}
+
+async function loadTexts() {
+  const src = document.getElementById('tfSource').value;
+  try {
+    const data = await (await fetch(`${API}/texts/?limit=2000`)).json();
+    const filtered = src ? data.filter(t => t.source_book === src) : data;
+    const tbody = document.getElementById('textTbody');
+    if (!filtered.length) { tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:30px;">暂无条文</td></tr>'; return; }
+    tbody.innerHTML = filtered.map(t => `
+      <tr>
+        <td><input type="checkbox" class="text-cb" value="${t.id}"></td>
+        <td>${t.id}</td><td>${escHtml(t.source_book||'--')}</td>
+        <td>${escHtml((t.chapter||'').substring(0,20))}</td>
+        <td style="max-width:350px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHtml((t.content||'').substring(0,80))}</td>
+        <td>${escHtml((t.keywords||'').substring(0,20))}</td>
+        <td>
+          <button class="btn btn-view btn-sm" onclick="editText(${t.id})">编辑</button>
+          <button class="btn btn-del btn-sm" onclick="deleteText(${t.id})">删除</button>
+        </td>
+      </tr>`).join('');
+  } catch(e) { document.getElementById('textTbody').innerHTML = '<tr><td colspan="7" style="text-align:center;color:#c0392b;padding:30px;">加载失败</td></tr>'; }
+}
+
+async function editText(id) {
+  const t = await (await fetch(`${API}/texts/${id}`)).json();
+  editingTextId = id;
+  document.getElementById('teSource').value = t.source_book||'';
+  document.getElementById('teChapter').value = t.chapter||'';
+  document.getElementById('teContent').value = t.content||'';
+  document.getElementById('teKeywords').value = t.keywords||'';
+  document.getElementById('textEditModal').classList.add('show');
+}
+
+async function saveTextEdit() {
+  if (!editingTextId) return;
+  try {
+    await fetch(`${API}/texts/${editingTextId}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+      source_book: document.getElementById('teSource').value,
+      chapter: document.getElementById('teChapter').value,
+      content: document.getElementById('teContent').value,
+      keywords: document.getElementById('teKeywords').value
+    })});
+    document.getElementById('textEditModal').classList.remove('show');
+    toast('保存成功','success'); loadTexts();
+  } catch(e) { toast('保存失败: '+e.message,'error'); }
+}
+
+async function deleteText(id) {
+  if (!confirm('确定删除此条文？')) return;
+  await fetch(`${API}/texts/${id}`,{method:'DELETE'});
+  toast('已删除','success'); loadTexts();
+}
+
+async function batchDeleteTexts() {
+  const ids = [...document.querySelectorAll('.text-cb:checked')].map(cb => cb.value);
+  if (!ids.length) { toast('请先勾选条文','error'); return; }
+  if (!confirm(`确定删除 ${ids.length} 条条文？`)) return;
+  await fetch(`${API}/texts/batch-delete`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids: ids.map(Number)})});
+  toast(`已删除 ${ids.length} 条`,'success'); loadTexts();
+}
+
+function toggleAllTexts(cb) {
+  document.querySelectorAll('.text-cb').forEach(c => c.checked = cb.checked);
+}
+
+function escHtml(s){if(!s)return'';const d=document.createElement('div');d.textContent=s;return d.innerHTML};
 
 // === 文档上传 ===
 async function uploadFile(inp) {
