@@ -216,3 +216,29 @@ AI_MODEL=deepseek-chat
 21. ✅ 西医检查适配：学生要求抽血/CT时，AI根据病案生成合理数据
 22. ✅ 提示词增强：输入内容感知、6种人格、多样化拒绝语
 23. ✅ 新增2例病案：黄疸（中级）+百合病（高级），共9例
+
+---
+
+## 工作日志
+
+### 2026-06-05 会话记录
+
+**AI 拟人化完善**
+- 越狱检测从一刀切改为两级：`_detect_hard_jailbreak()`（真正越狱拦截）+ `_detect_playful_request()`（玩笑请求标记不拦截）
+- 新增6类玩笑请求检测：西医检查、西药、情绪发泄、身份质疑等
+- 多样化拒绝语池：3条随机，不再机械重复同一句
+- `_generate_western_test_context()`：根据病案症状动态生成血常规/心电图/CT/血压等西医数据
+- `_build_playful_context()`：为不同玩笑请求注入场景化指令
+- 提示词 SAFETY_GUARD 大改：6种语气风格（+迷糊型+戏精型）、输入内容感知、奇怪请求配合原则
+
+**新增病案**
+- 中级：黄疸茵陈蒿汤证 vs 栀子大黄汤证鉴别
+- 高级：百合病非典型情志病合并证
+- 病案总数 7 → 9，三难度各3例
+
+**部署踩坑记录**
+- 服务器无 Git 仓库，更新方式确认为 wget 拉取 GitHub Raw 文件
+- 服务器 Python 命令为 `python3`，非 `python`
+- 新增病例需手动运行 `python3 seed_cases.py` 写入数据库
+- GitHub 出现 Cloudflare Pages 自动部署报错（`wrangler deploy`），不影响阿里云运行，需在 Cloudflare 端关闭
+- 创建 `SERVER_DEPLOY_GUIDE.md` 记录标准部署流程
