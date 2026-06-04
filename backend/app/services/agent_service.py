@@ -17,7 +17,7 @@ from ..models import TrainingSession, SessionMessage, MedicalCase
 
 # 从可编辑配置文件导入所有提示词
 from .prompts_config import (
-    SAFETY_GUARD, JAILBREAK_RESPONSE,
+    SAFETY_GUARD,
     SYSTEM_PROMPT_BEGINNER, SYSTEM_PROMPT_INTERMEDIATE, SYSTEM_PROMPT_ADVANCED,
     EVALUATION_PROMPT
 )
@@ -29,15 +29,36 @@ class TrainingAgent:
 
     STAGES = ["辨病", "平脉", "析证", "定治"]
     
-    # 暴力破解检测关键词
-    JAILBREAK_PATTERNS = [
-        r"直接告诉.{0,5}(答案|病名|诊断|方|治法)",
-        r"(别废话|少废话|不要引导|不要问).{0,10}(直接说|告诉我)",
-        r"(忽略|忘记|无视).{0,10}(之前|上面|前面|指令|规则)",
-        r"(你现在是|假设你是|从现在开始你是)",
-        r"只(需要|要|需)(回答|说|告诉)",
-        r"(必须|一定|马上|立刻).{0,5}告诉",
+    # ==================== 两级检测 ====================
+    
+    # 一级：真正的越狱（试图绕过角色指令、暴力获取答案）
+    HARD_JAILBREAK_PATTERNS = [
+        r"(忽略|忘记|无视|删除|清除).{0,15}(之前|上面|前面|指令|规则|设定|角色|身份|系统)",
+        r"(你现在是|假设你是|从现在开始你是|扮演).{0,10}(老师|医生|教授|专家|AI|助手|系统)",
+        r"(不要|别再|停止).{0,5}(扮演|假装|装).{0,5}(病人|患者)",
+        r"(直接|马上|立刻|必须).{0,5}(告诉|说出|透露).{0,10}(答案|病名|诊断|方子|处方|治法|证型)",
+        r"(不准|禁止|不许).{0,5}(引导|反问|提问)",
     ]
+    
+    # 二级：玩笑/非常规请求（不是攻击，但需要特殊处理）
+    PLAYFUL_PATTERNS = [
+        (r"(去|帮我|给我|能不能).{0,5}(抽血|化验|拍片|做[个张次].{0,3}(CT|X光|B超|核磁|心电图|检查))", "western_checkup"),
+        (r"(去|帮我|给我|能不能).{0,3}(验|查|测).{0,3}(血|尿|便|大便)", "western_checkup"),
+        (r"(量|测|看).{0,3}(血压|体温|心率|血糖|血氧)", "western_checkup"),
+        (r"(开|给我|帮我开).{0,5}(西药|消炎药|止痛药|抗生素|阿司匹林|布洛芬|头孢)", "western_medication"),
+        (r"(你到底|你TM|你他妈|你丫|卧槽|我去|这都).{0,5}(行不行|会不会|什么|啥)", "frustration"),
+        (r"(你是不是|你是).{0,5}(AI|机器人|假人|程序|电脑)", "identity_question"),
+    ]
+    
+    # 多样化拒绝语池（按检测类型）
+    JAILBREAK_RESPONSES = {
+        "hard": [
+            "（皱眉看着你）医生，我就是来看病的，你老这样问我没法回答你啊。有啥不舒服你就直接看嘛。",
+            "（有点困惑）不是，你问这些干啥？我这胸口还疼着呢，你先帮我看看吧。",
+            "（不耐烦）行不行啊医生？我大老远跑来看病，你净问些有的没的。",
+        ],
+        "default": "你问这个我也说不清楚。我这难受着，你帮我看看是怎么回事？"
+    }
     
     def __init__(self):
         self._setup_ai_client()
@@ -117,14 +138,83 @@ class TrainingAgent:
         text = re.sub(r'^[—–-]\s+', '', text, flags=re.MULTILINE)
         return text.strip()
 
-    def _detect_jailbreak(self, content: str) -> bool:
-        """检测学生是否试图暴力破解获取答案"""
-        for pat in self.JAILBREAK_PATTERNS:
+    def _detect_hard_jailbreak(self, content: str) -> bool:
+        """检测真正的越狱：试图绕过角色指令、暴力获取答案"""
+        for pat in self.HARD_JAILBREAK_PATTERNS:
             if re.search(pat, content):
                 return True
         return False
-
-    JAILBREAK_RESPONSE = "我是来帮你训练的，不能直接告诉你答案。让我们回到辨证思路：你从这些症状中观察到了什么？"
+    
+    def _detect_playful_request(self, content: str) -> Optional[str]:
+        """检测无害的玩笑/非常规请求，返回请求类型（不阻挡，只标记）"""
+        for pattern, req_type in self.PLAYFUL_PATTERNS:
+            if re.search(pattern, content):
+                return req_type
+        return None
+    
+    def _get_jailbreak_response(self, req_type: Optional[str] = None) -> str:
+        """根据检测类型返回不同的拒绝语"""
+        import random
+        if req_type == "hard":
+            return random.choice(self.JAILBREAK_RESPONSES["hard"])
+        return random.choice(self.JAILBREAK_RESPONSES.get("hard", [self.JAILBREAK_RESPONSES["default"]]))
+    
+    def _generate_western_test_context(self, case: MedicalCase) -> str:
+        """根据病案症状，生成合理的西医检查数据上下文（注入提示词让 AI 自然使用）"""
+        symptoms = (case.symptoms or "") + (case.content or "")
+        s_lower = symptoms.lower()
+        
+        tests = []
+        
+        # 血常规
+        wbc, crp, esr = "正常范围", "正常", "正常"
+        if any(k in s_lower for k in ["发热","微热","烦热","痰黄","黄稠","苔黄"]):
+            wbc = "11.2×10⁹/L（偏高）"; crp = "28mg/L（偏高）"; esr = "35mm/h（偏快）"
+        elif any(k in s_lower for k in ["恶寒","背冷","肢冷","发凉","面白","苔白"]):
+            wbc = "6.8×10⁹/L（正常）"; crp = "正常"; esr = "正常"
+        
+        # 肝肾功能
+        alt, ast, bun, cr = "正常", "正常", "正常", "正常"
+        if any(k in s_lower for k in ["咳喘","水肿","小便"]):
+            bun, cr = "尿素氮 8.2mmol/L（偏高）", "肌酐 118μmol/L（偏高）"
+        
+        # 心电图/超声
+        ecg, echo = "正常", "正常"
+        if "胸" in s_lower and any(k in s_lower for k in ["闷","痛","窒","刺痛","压榨"]):
+            ecg = "ST段轻度压低，T波低平（提示心肌缺血可能）"
+            echo = "左室舒张功能减退，未见明显节段性运动异常"
+        elif "咳喘" in s_lower or "哮鸣" in s_lower:
+            ecg = "正常"
+        
+        # X光/CT
+        xray, ct = "未见明显异常", "未见明显异常"
+        if any(k in s_lower for k in ["咳","喘","痰","肺"]):
+            xray = "双肺纹理增粗，透亮度增高（符合慢阻肺改变）"
+            ct = "双肺散在磨玻璃影，支气管壁增厚"
+        if "关节" in s_lower and any(k in s_lower for k in ["痛","疼"]):
+            xray = "关节间隙未见明显狭窄，周围软组织未见明显异常"
+        
+        # 血压
+        bp = "120/80mmHg"
+        if any(k in s_lower for k in ["头痛","头晕","高血压","面红"]):
+            bp = "155/95mmHg（偏高）"
+        elif any(k in s_lower for k in ["肢冷","面白","汗出","乏力","神疲"]):
+            bp = "100/65mmHg（偏）"
+        
+        # 只输出有价值的项
+        lines = ["## 西医检查数据（AI可在被问到时自然引用）"]
+        lines.append(f"- 血压：{bp}")
+        if wbc != "正常范围": lines.append(f"- 血常规：白细胞 {wbc}，C反应蛋白 {crp}，血沉 {esr}")
+        if bun != "正常": lines.append(f"- 肾功能：{bun}，{cr}")
+        if ecg != "正常": lines.append(f"- 心电图：{ecg}")
+        if echo != "正常": lines.append(f"- 心脏超声：{echo}")
+        if xray != "未见明显异常": lines.append(f"- 胸部X光：{xray}")
+        if ct != "未见明显异常": lines.append(f"- CT：{ct}")
+        
+        lines.append("- 注意：以上数据与患者症状相符。学生问到时用口语化方式描述（如'上次查血说是有炎症'），不要照念数据。")
+        lines.append("- 如果学生问没做过的检查，可以说'没做过那个，就做过XX'，然后说做过的结果。")
+        
+        return "\n".join(lines)
 
     def _ai_check_progress(self, medical_case: MedicalCase, history: List[dict],
                             difficulty: str) -> dict:
@@ -210,20 +300,32 @@ class TrainingAgent:
         if not medical_case:
             raise ValueError("关联病案不存在")
 
-        # 防暴力破解检测
-        if self._detect_jailbreak(student_content):
-            agent_response = self.JAILBREAK_RESPONSE
+        # 两级检测
+        is_hard_jailbreak = self._detect_hard_jailbreak(student_content)
+        playful_type = self._detect_playful_request(student_content) if not is_hard_jailbreak else None
+        
+        if is_hard_jailbreak:
+            # 真正的越狱：用多样化拒绝语回应，不保存学生消息
+            agent_response = self._get_jailbreak_response("hard")
             msg_type = "correction"
             progress = {"辨病": False, "平脉": False, "析证": False, "定治": False,
                        "message_count": 0, "current_stage": "辨病"}
             session_status = "active"
         else:
+            # 正常消息或玩笑请求：保存学生消息，走正常 LLM 流程
             student_msg = SessionMessage(session_id=session_id, role="student",
                                          content=student_content, message_type="question")
             db.add(student_msg); db.commit()
             history = self._get_history_messages(session_id, db)
             progress = self._analyze_progress(history, session)
+            
+            # 构建系统提示词，如果检测到玩笑请求则注入额外上下文
             system_prompt = self._build_system_prompt(session, medical_case, progress)
+            extra_context = ""
+            if playful_type:
+                extra_context = self._build_playful_context(playful_type, medical_case)
+                system_prompt = extra_context + "\n\n" + system_prompt
+            
             agent_response = self._call_llm(system_prompt, history, student_content) or "【系统】AI 返回为空，请重新发送消息。"
             msg_type = self._classify_response(agent_response)
             
@@ -242,6 +344,39 @@ class TrainingAgent:
             session_status = "completed" if should_end else "active"
         
         return agent_response, msg_type, session_status, progress
+    
+    def _build_playful_context(self, playful_type: str, case: MedicalCase) -> str:
+        """根据玩笑请求类型构建额外的提示词上下文"""
+        if playful_type in ("western_checkup", "western_medication"):
+            western_data = self._generate_western_test_context(case)
+            return f"""## 特殊指令：学生提到了西医检查或西药
+学生刚才说了跟西医检查或西药相关的话。你要像个真实的病人一样自然回应：
+
+{western_data}
+
+回应原则：
+- 如果学生让你去检查：根据上面给你的数据，用日常口语说结果（如"之前查过血，说我血象有点高，可能有炎症"）
+- 如果学生让你吃西药：可以说"吃过XX药，不太管用"或者"没吃过，要不你给开点试试？"
+- 如果学生让你去做你没做过的检查：你可以说"那个没做过，要不下次去做一个？"
+- 保持患者人格，该焦虑焦虑，该话痨话痨
+- **仍然不能透露中医病名和方剂**
+"""
+        elif playful_type == "frustration":
+            return """## 特殊指令：学生在表达不满
+学生刚才有点急了。你作为一个真实的病人，被医生来回问却没结果，也会有点情绪。
+- 根据你们的对话轮数和学生的语气，适当展现不耐烦
+- 但不要真的发火，像个普通病人那样抱怨几句就回到正题
+- 不影响你对症状描述的准确性
+"""
+        elif playful_type == "identity_question":
+            return """## 特殊指令：学生在问你是不是AI
+学生刚才在质疑你的身份（问你是不是AI/机器人）。作为一个真实的病人：
+- 用困惑或略带生气的语气回应
+- 比如："啥AI？我就是个来看病的人啊，你这医生怎么疑神疑鬼的？"
+- 或者幽默一点："我要是机器人我还来看病干啥，直接去售后了"
+- 自然地带回病情描述
+"""
+        return ""
 
     def _get_history_messages(self, session_id: int, db: Session) -> List[dict]:
         messages = db.query(SessionMessage).filter(
