@@ -490,7 +490,7 @@ class TrainingAgent:
 
     # ---------- 评价 ----------
 
-    def evaluate_session(self, db: Session, session_id: int) -> Tuple[str, str, str]:
+    def evaluate_session(self, db: Session, session_id: int) -> dict:
         session = db.query(TrainingSession).filter(TrainingSession.id == session_id).first()
         if not session: raise ValueError(f"会话 {session_id} 不存在")
         medical_case = session.case
@@ -527,7 +527,37 @@ class TrainingAgent:
         db.commit()
         dp = self._summarize_decision_path(session, messages)
         session.decision_path = dp; db.commit()
-        return eval_text, score, dp
+
+        # 匹配相关经典条文
+        related_texts = self._get_related_texts(db, medical_case) if medical_case else []
+
+        return {
+            "evaluation": eval_text,
+            "score": score,
+            "decision_path": dp,
+            "related_texts": related_texts
+        }
+
+    def _get_related_texts(self, db: Session, medical_case) -> List[dict]:
+        """匹配与病案相关的经典条文"""
+        from ..models import ClassicText
+        from .matcher import get_matcher
+        try:
+            matcher = get_matcher()
+            scored_texts = matcher.find_related_texts(medical_case, db, limit=5)
+            return [
+                {
+                    "id": text.id,
+                    "source_book": text.source_book,
+                    "chapter": text.chapter or "",
+                    "content": text.content,
+                    "similarity": round(score, 2)
+                }
+                for text, score in scored_texts if score > 0.05
+            ]
+        except Exception as e:
+            print(f"[Agent] 条文匹配失败: {e}")
+            return []
 
     def _summarize_decision_path(self, session: TrainingSession, messages: List[dict]) -> str:
         path = [f"训练等级：{session.difficulty_level}"]

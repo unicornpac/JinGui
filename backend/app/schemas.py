@@ -162,3 +162,4 @@ class SessionEvaluateResponse(BaseModel):
     decision_path: str = Field(..., description="辨治路径追溯（辨病→平脉→析证→定治）")
     case_title: Optional[str] = Field(None, description="病案标题（训练结束后揭晓）")
     case_correct_answer: Optional[str] = Field(None, description="参考答案（训练结束后揭晓）")
+    related_texts: Optional[List[dict]] = Field(None, description="相关经典条文（含出处和原文）")

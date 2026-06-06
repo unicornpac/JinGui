@@ -247,6 +247,10 @@ body {
       <button class="btn btn-primary" onclick="closeEval()">知道了</button>
       <button class="btn btn-outline" onclick="closeEval();resetAll();">开始新训练</button>
     </div>
+    <div class="related-texts" id="relatedTexts" style="display:none;margin-top:16px;border-top:1px solid #e0d5c0;padding-top:16px;">
+      <h4 style="color:#5c3d2e;margin-bottom:10px;">📖 相关经典条文</h4>
+      <div id="relatedTextsContent"></div>
+    </div>
   </div>
 </div>
 
@@ -393,6 +397,21 @@ async function evaluateSession() {
       document.getElementById('evalScore').textContent = data.score || '--';
       document.getElementById('evalDetail').innerHTML = '';
       document.getElementById('evalText').textContent = data.evaluation || '评价生成中…';
+    }
+    
+    // 显示相关经典条文
+    if (data.related_texts && data.related_texts.length > 0) {
+      document.getElementById('relatedTexts').style.display = 'block';
+      let html = '';
+      data.related_texts.forEach((t, i) => {
+        html += `<div style="background:#faf7f0;padding:10px 14px;border-radius:8px;margin-bottom:8px;border-left:3px solid #8b5a2b;">
+          <div style="font-size:12px;color:#8a7a6a;margin-bottom:4px;">📜 ${escHtml(t.source_book)} · ${escHtml(t.chapter)}</div>
+          <div style="font-size:14px;line-height:1.7;color:#3d2b1f;">${escHtml(t.content)}</div>
+        </div>`;
+      });
+      document.getElementById('relatedTextsContent').innerHTML = html;
+    } else {
+      document.getElementById('relatedTexts').style.display = 'none';
     }
     
     document.getElementById('evalModal').classList.add('show');
