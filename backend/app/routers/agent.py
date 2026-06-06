@@ -133,19 +133,21 @@ async def evaluate_session(
             evaluation=session.decision_path or "",
             decision_path=session.decision_path or "",
             case_title=case.title if case else None,
-            case_correct_answer=case.correct_answer if case else None
+            case_correct_answer=case.correct_answer if case else None,
+            related_texts=[]
         )
     
     agent = get_agent()
     try:
-        eval_text, score, decision_path = agent.evaluate_session(db=db, session_id=session_id)
+        result = agent.evaluate_session(db=db, session_id=session_id)
         return SessionEvaluateResponse(
             session_id=session.id,
-            score=score,
-            evaluation=eval_text,
-            decision_path=decision_path,
+            score=result["score"],
+            evaluation=result["evaluation"],
+            decision_path=result["decision_path"],
             case_title=case.title if case else None,
-            case_correct_answer=case.correct_answer if case else None
+            case_correct_answer=case.correct_answer if case else None,
+            related_texts=result.get("related_texts", [])
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
