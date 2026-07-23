@@ -11,9 +11,12 @@ if _env_file.exists():
     load_dotenv(_env_file, override=False)  # override=False: 环境变量优先
     print(f"[启动] 已加载 .env: {_env_file}")
 
-from fastapi import FastAPI
+import os
+import secrets
+
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from .database import init_db
 from .routers import texts, cases, analysis, documents, agent
 
@@ -44,6 +47,22 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# -- 管理端 HTTP Basic Auth --
+security = HTTPBasic()
+
+
+def verify_admin(credentials: HTTPBasicCredentials = Depends(security)):
+    """验证管理员密码，保护 / （管理端）页面"""
+    correct = os.environ.get("ADMIN_PASSWORD", "jingui2026")
+    if not secrets.compare_digest(credentials.password.encode(), correct.encode()):
+        raise HTTPException(
+            status_code=401,
+            detail="密码错误",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+    return credentials.username
+
+
 # 全局异常处理：确保 500 等错误返回 JSON
 @app.exception_handler(Exception)
 async def global_exception_handler(request, exc):
@@ -71,8 +90,8 @@ async def startup_event():
 
 
 @app.get("/")
-async def root():
-    """根路径"""
+async def root(_: str = Depends(verify_admin)):
+    """根路径（管理端，需密码）"""
     from fastapi.responses import FileResponse
     index_path = STATIC_DIR / "index.html"
     if index_path.exists():
