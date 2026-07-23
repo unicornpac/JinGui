@@ -17,8 +17,9 @@ from ..services.parser import DocumentParser
 
 router = APIRouter()
 
-# 上传目录
-UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")
+# 上传目录（与 DATA_DIR 保持一致，支持云平台持久磁盘）
+_DATA_ROOT = os.environ.get("DATA_DIR", BASE_DIR)
+UPLOAD_DIR = os.path.join(_DATA_ROOT, "uploads")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 
