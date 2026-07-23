@@ -7,14 +7,15 @@ from sqlalchemy.orm import sessionmaker
 import os
 
 # 数据库文件路径
+# DATA_DIR 环境变量用于云平台持久磁盘挂载（如 Render），未设置时使用本地 data/ 目录
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DATABASE_DIR = os.path.join(BASE_DIR, "data")
-os.makedirs(DATABASE_DIR, exist_ok=True)
+DATA_DIR = os.environ.get("DATA_DIR", os.path.join(BASE_DIR, "data"))
+os.makedirs(DATA_DIR, exist_ok=True)
 
-# 导出BASE_DIR供其他模块使用
-__all__ = ['BASE_DIR', 'DATABASE_DIR', 'engine', 'SessionLocal', 'Base', 'get_db', 'init_db']
+# 导出供其他模块使用
+__all__ = ['BASE_DIR', 'DATA_DIR', 'engine', 'SessionLocal', 'Base', 'get_db', 'init_db']
 
-DATABASE_URL = f"sqlite:///{os.path.join(DATABASE_DIR, 'tcm.db')}"
+DATABASE_URL = f"sqlite:///{os.path.join(DATA_DIR, 'tcm.db')}"
 
 # 创建数据库引擎
 engine = create_engine(
