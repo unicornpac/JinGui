@@ -8,10 +8,11 @@ API 端点：
 - POST /api/agent/session/{id}/evaluate — 结束并评价
 - GET  /api/agent/sessions           — 获取会话列表
 """
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 from typing import List
 from ..database import get_db
+from ..dependencies import verify_admin, limit_agent_start, limit_agent_message
 from ..models import TrainingSession, SessionMessage, MedicalCase
 from ..schemas import (
     SessionStartRequest, SessionStartResponse,
@@ -27,7 +28,8 @@ router = APIRouter()
 @router.post("/session/start", response_model=SessionStartResponse, summary="开始训练")
 async def start_session(
     req: SessionStartRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _rl: None = Depends(limit_agent_start),
 ):
     """开始一个新的临床思辨训练会话"""
     agent = get_agent()
@@ -54,7 +56,8 @@ async def start_session(
 async def send_message(
     session_id: int,
     req: SessionMessageRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _rl: None = Depends(limit_agent_message),
 ):
     """向智能体发送消息，获取回复"""
     agent = get_agent()
@@ -117,7 +120,8 @@ async def get_session_detail(
 @router.post("/session/{session_id}/evaluate", response_model=SessionEvaluateResponse, summary="结束并评价")
 async def evaluate_session(
     session_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _rl: None = Depends(limit_agent_start),
 ):
     """结束训练会话并生成 AI 评价报告（含病案揭晓）"""
     session = db.query(TrainingSession).filter(TrainingSession.id == session_id).first()
@@ -162,7 +166,8 @@ async def list_sessions(
     status: str = Query(None, description="按状态筛选：active/completed/abandoned"),
     skip: int = Query(0, ge=0, description="跳过条数"),
     limit: int = Query(50, ge=1, le=200, description="每页条数"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _admin: str = Depends(verify_admin),
 ):
     """获取训练会话列表（教师端可用）"""
     query = db.query(TrainingSession)
@@ -195,7 +200,8 @@ async def list_sessions(
 @router.delete("/session/{session_id}", status_code=204, summary="删除会话")
 async def delete_session(
     session_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _admin: str = Depends(verify_admin),
 ):
     """删除指定训练会话及其所有消息"""
     session = db.query(TrainingSession).filter(TrainingSession.id == session_id).first()

@@ -12,12 +12,12 @@ if _env_file.exists():
     print(f"[启动] 已加载 .env: {_env_file}")
 
 import os
-import secrets
 
 from fastapi import Depends, FastAPI, HTTPException
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from .database import init_db
+from .dependencies import verify_admin
 from .routers import texts, cases, analysis, documents, agent
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
@@ -38,7 +38,7 @@ app = FastAPI(
     ],
 )
 
-# 配置CORS（跨域资源共享）
+# CORS 配置在上方
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -47,27 +47,26 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# -- 管理端 HTTP Basic Auth --
-security = HTTPBasic()
-
-
-def verify_admin(credentials: HTTPBasicCredentials = Depends(security)):
-    """验证管理员密码，保护 / （管理端）页面"""
-    correct = os.environ.get("ADMIN_PASSWORD", "jingui2026")
-    if not secrets.compare_digest(credentials.password.encode(), correct.encode()):
-        raise HTTPException(
-            status_code=401,
-            detail="密码错误",
-            headers={"WWW-Authenticate": "Basic"},
-        )
-    return credentials.username
-
 
 # 全局异常处理：确保 500 等错误返回 JSON
 @app.exception_handler(Exception)
 async def global_exception_handler(request, exc):
     import traceback
     from fastapi.responses import JSONResponse
+
+    # FastAPI 内置异常 -> 保留原始状态码（避免 422/401/404 等被吞成 500）
+    if isinstance(exc, RequestValidationError):
+        return JSONResponse(
+            status_code=422,
+            content={"detail": exc.errors(), "type": type(exc).__name__}
+        )
+    if isinstance(exc, HTTPException):
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"detail": exc.detail, "type": type(exc).__name__}
+        )
+
+    # 真正的未预期异常 -> 500
     traceback.print_exc()
     return JSONResponse(
         status_code=500,

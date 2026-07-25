@@ -6,6 +6,7 @@ from fastapi.responses import Response
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from ..database import get_db
+from ..dependencies import verify_admin
 from ..models import MedicalCase
 from ..schemas import MedicalCaseCreate, MedicalCaseUpdate, MedicalCaseResponse, BatchDeleteIds, MessageResponse
 
@@ -15,7 +16,8 @@ router = APIRouter()
 @router.post("/", response_model=MedicalCaseResponse, status_code=201, summary="创建病案")
 async def create_case(
     case: MedicalCaseCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _admin: str = Depends(verify_admin),
 ):
     """创建新病案"""
     db_case = MedicalCase(**case.model_dump())
@@ -49,7 +51,8 @@ async def get_cases(
 @router.post("/batch-delete", response_model=MessageResponse, summary="批量删除病案")
 async def batch_delete_cases(
     body: BatchDeleteIds,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _admin: str = Depends(verify_admin),
 ):
     """批量删除指定ID的病案"""
     ids = body.ids or []
@@ -76,7 +79,8 @@ async def get_case(
 async def update_case(
     case_id: int,
     case_update: MedicalCaseUpdate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _admin: str = Depends(verify_admin),
 ):
     """更新病案"""
     case = db.query(MedicalCase).filter(MedicalCase.id == case_id).first()
@@ -95,7 +99,8 @@ async def update_case(
 @router.delete("/{case_id}", status_code=204, summary="删除病案")
 async def delete_case(
     case_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _admin: str = Depends(verify_admin),
 ):
     """删除病案"""
     case = db.query(MedicalCase).filter(MedicalCase.id == case_id).first()

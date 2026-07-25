@@ -6,7 +6,7 @@
 
 - 负责人：董兆珵（金匮教研室）
 - 周期：2026年4月 — 2027年3月
-- 当前完成度：后端+前端原型可运行，7例结构化训练病例，136条经典条文
+- **当前完成度**：后端+前端可运行，9例结构化训练病例，396条经典条文，108个自动化测试，P0安全修复完成
 
 ---
 
@@ -29,12 +29,13 @@ AI: Linvk (ai.linvk.com) → deepseek/deepseek-v4-flash
 ```
 backend/
 ├── run.bat                    # 一键启动（双击）
-├── seed_cases.py              # 7例结构化病例初始化脚本
+├── seed_cases.py              # 9例结构化病例初始化脚本
 ├── requirements.txt           # Python 依赖
 ├── .env                       # AI API 密钥配置
 ├── app/
 │   ├── main.py                # FastAPI 主入口，路由注册
 │   ├── database.py            # SQLite 连接 + 会话管理
+│   ├── dependencies.py        # 共享依赖（认证、限流）
 │   ├── models.py              # 8张数据表定义
 │   ├── schemas.py             # Pydantic 请求/响应模型
 │   ├── routers/
@@ -55,8 +56,16 @@ backend/
 │   ├── user.html              # 首页导航
 │   ├── train.html             # 学生训练端（核心前端）
 │   └── study.html             # 条文学习页（按病证分类）
+├── tests/
+│   ├── conftest.py            # pytest 公共夹具
+│   ├── test_jailbreak.py      # 越狱检测测试
+│   ├── test_pure_functions.py # 纯函数测试
+│   ├── test_progress.py       # 进度分析测试
+│   └── test_api_routes.py     # API 路由测试
 ├── data/tcm.db                # SQLite 数据库文件
-└── uploads/                   # 上传文档存储
+├── uploads/                   # 上传文档存储
+├── .coveragerc                # 覆盖率配置
+└── .github/workflows/test.yml # CI 工作流
 ```
 
 ---
@@ -66,8 +75,8 @@ backend/
 | 表名 | 用途 | 关键字段 |
 |------|------|---------|
 | `categories` | 分类表 | name, description |
-| `classic_texts` | 经典条文（136条） | source_book, chapter, content, keywords |
-| `medical_cases` | 训练病案（7例） | title, content, symptoms, diagnosis, prescription, difficulty_level, teaching_points, correct_answer |
+| `classic_texts` | 经典条文（396条） | source_book, chapter, content, keywords |
+| `medical_cases` | 训练病案（9例） | title, content, symptoms, diagnosis, prescription, difficulty_level, teaching_points, correct_answer |
 | `text_case_relations` | 条文-病案关联 | text_id, case_id, similarity_score |
 | `documents` | 上传文档 | filename, file_type, parsed_content, status |
 | `learning_history` | 旧版学习记录 | user_query, analysis_result |
@@ -173,7 +182,7 @@ http://localhost:8000/docs     # API 文档
 
 ---
 
-## 当前状态（2026-06-06 更新）
+## 当前状态（2026-07-25 更新）
 
 - **部署**：阿里云 ECS `121.40.170.154:8000`，systemd 开机自启
 - **数据**：396条条文（伤寒论398条） + **9例训练病案**（初级3/中级3/高级3）
@@ -181,6 +190,15 @@ http://localhost:8000/docs     # API 文档
 - **前端**：4个页面，管理端已加条文管理面板，study 页已分金匮/伤寒两组
 - **提示词**：纯患者角色，含人格系统+情绪分级（大幅拉长节奏）+贴吧老哥模式+输入内容感知+西医检查适配+医学常识约束
 - **评价**：训练结束后自动匹配并展示相关《金匮要略》/《伤寒论》原条文
+- **测试**：**108 个自动化测试**（pytest），覆盖越狱检测、纯函数、进度分析、API 路由、错误处理
+- **覆盖率**：pytest-cov 已配置（`.coveragerc`），总体 40%（models/schemas 100%，agent_service 52%）
+- **CI**：GitHub Actions（`.github/workflows/test.yml`），push/PR 自动运行测试+覆盖率
+- **安全**：API 写操作认证保护 + 频率限制 + 上传分级管控
+- **改进追踪**：`IMPROVEMENT_LOG.md` 列出 18 项改进（P0 已清零，P1-P3 共 15 项待处理）
+
+## 已知待修复问题
+
+（P0 已清零，剩余 P1-P3 共 15 项详见 `IMPROVEMENT_LOG.md`）
 
 ## 部署信息
 
@@ -220,6 +238,62 @@ AI_MODEL=deepseek-chat
 24. ✅ 情绪分级细化：2轮→5轮基础耐心，完整升级节奏拉长至20轮，增加"医生是否有进展"条件判断
 25. ✅ 医学常识约束：AI发挥不能编造核心症状，检查结果要与病案症状一致，口语化转述不背检验单
 26. ✅ 评价附加原条文：训练结束后自动匹配并展示与病案相关的《金匮》/《伤寒》经典条文
+27. ✅ 补充核心测试体系：106个自动化测试（越狱检测、纯函数、进度分析、API路由），pytest + SQLite内存引擎
+28. ✅ 修复全局异常处理器：RequestValidationError(422) 不再被吞成 500
+29. ✅ pytest-cov 覆盖率报告 + GitHub Actions CI 集成
+30. ✅ API 路由认证保护：13 个写端点全部加管理员密码验证
+31. ✅ 请求频率限制 + 文件上传分级管控（≤20MB/200MB + 密码分级）
+
+### 2026-07-25 会话记录
+
+**修复全局异常处理器（422 被吞成 500）**
+- `app/main.py` 中 `@app.exception_handler(Exception)` 宽泛捕获所有异常统一返回 500
+- 修复：在处理器中增加 `isinstance(exc, RequestValidationError)` → 422 和 `isinstance(exc, HTTPException)` → 原状态码的判断
+- 新增测试：`test_422_validation_error_not_500`（验证 Pydantic 必填字段缺失返回 422）和 `test_404_http_exception_not_masked_as_500`（验证路由 404 不被吞成 500）
+
+**修复 conftest SQLite 线程池问题**
+- `conftest.py` 中 `engine` 夹具使用默认 `SingletonThreadPool`，TestClient 异步请求与 create_all 在不同线程，导致不同的 `:memory:` 数据库实例
+- 修复：改用 `StaticPool` 确保所有连接共享同一内存数据库
+- 修改：`conftest.py` 新增 `from sqlalchemy.pool import StaticPool`，engine 创建增加 `poolclass=StaticPool`
+
+**添加 pytest-cov 覆盖率报告**
+- 新增 `backend/.coveragerc` 配置文件（source=app, 排除 tests/ 和种子脚本）
+- 运行：`python -m pytest tests/ --cov --cov-report=term-missing`
+- 当前覆盖率：总体 40%（models 100%, schemas 100%, agent_service 52%, main 72%）
+
+**CI 集成（GitHub Actions）**
+- 新增 `.github/workflows/test.yml`
+- 触发：push/PR 到 main/master 分支
+- 步骤：Checkout → Python 3.11 → 安装依赖 → pytest --cov → 上传 HTML 覆盖率报告
+
+**修复 httpx 版本约束**
+- `requirements.txt`：`httpx>=0.27.0` → `httpx>=0.26,<0.28`（防止 0.28+ 不兼容 starlette 0.27）
+
+**测试数量**：106 → 108（新增 2 个 API 错误处理测试）
+
+### P0 紧急修复（2026-07-25 第二部分）
+
+**P0-1：API 路由认证保护**
+- 创建 `app/dependencies.py` 共享认证模块（`verify_admin`、`SimpleRateLimiter`）
+- 所有写操作端点（POST/PUT/DELETE）添加 `Depends(verify_admin)` 认证依赖
+- 覆盖 texts（4个）、cases（4个）、documents（1个）、analysis（1个）、agent（2个）共 13 个端点
+- `main.py` 中原有的 `verify_admin` 逻辑迁移至 `dependencies.py`，消除重复
+
+**P0-2：请求频率限制**
+- 自实现 `SimpleRateLimiter`（基于内存滑动窗口），无需外部依赖，避免 `slowapi` 在 Windows 的 GBK 编码问题
+- 限制策略：agent-message 30次/分，agent-start/evaluate 10次/分，analysis-query 10次/分，upload 5次/时
+- 以 `IP + 方法 + 路由（含 ID 聚合）` 为限流 key，429 响应含 `Retry-After` 头
+
+**P0-3：文件上传大小限制 + 分级密码**
+- ≤20MB：直接上传（需管理员认证 per P0-1）
+- 20MB~200MB：需在请求头附加 `X-Upload-Password` 管理员密码
+- >200MB：硬拒绝（HTTP 413）
+- 流式分块写入时二次校验，防止 Content-Length 伪造绕过
+
+**更多改进**
+- 新增 `IMPROVEMENT_LOG.md`：18 项专业改进清单，按 P0-P3 分级追踪
+
+**涉及文件**：`dependencies.py`（新增）、`main.py`、`texts.py`、`cases.py`、`analysis.py`、`agent.py`、`documents.py`、`IMPROVEMENT_LOG.md`（新增）
 
 ---
 
@@ -268,3 +342,28 @@ AI_MODEL=deepseek-chat
 - 新增病例需手动运行 `python3 seed_cases.py` 写入数据库
 - GitHub 出现 Cloudflare Pages 自动部署报错（`wrangler deploy`），不影响阿里云运行，需在 Cloudflare 端关闭
 - 创建 `SERVER_DEPLOY_GUIDE.md` 记录标准部署流程
+
+### 2026-07-24 会话记录
+
+**补充核心测试体系**
+
+- 目的：核心代码（越狱检测、文本清理、进度分析、API 路由）零测试覆盖，任何改动都可能引入回归
+- 新增依赖：`pytest>=8.0.0`、`pytest-cov>=5.0.0`、`httpx>=0.26,<0.28`
+- 新增文件：
+  - `backend/tests/__init__.py` — 测试包初始化
+  - `backend/tests/conftest.py` — 公共夹具（SQLite 内存引擎、TestClient、样本病案、agent 实例）
+  - `backend/tests/test_jailbreak.py` — 越狱检测测试（16 硬越狱变体 + 10 正常输入 + 6 玩笑请求 + 拒绝语生成）
+  - `backend/tests/test_pure_functions.py` — 纯函数测试（`_clean_text` 12 例、`_classify_response` 13 例、`_extract_decision_point` 6 例、`_detect_classic_context` 4 例、playful context 4 例、西医数据生成 3 例）
+  - `backend/tests/test_progress.py` — 进度分析测试（初级/中级/高级三阶梯 + AI 辅助合并 + 会话自动结束边界 50/49 轮）
+  - `backend/tests/test_api_routes.py` — API 层测试（session 创建/异常/404、页面可访问性、全局 404、管理端认证拦截）
+- 测试结果：**106 个测试全部通过**（pytest 9.1.1，运行约 4 分钟）
+- 测试策略：
+  - 单元测试（agent 纯函数）：隔离测试，`agent` 夹具无 AI 客户端
+  - 进度测试：`patch` 替换 `_ai_check_progress` 避免真实 AI 调用
+  - API 测试：mock `get_agent` 隔离业务逻辑，mock `get_db` 控制数据层
+- 踩坑记录：
+  - `httpx>=0.28` 与 `starlette==0.27` 不兼容（`Client.__init__ no 'app' kwarg`），锁定 `httpx>=0.26,<0.28`
+  - `TestClient` DB 依赖注入在 `@app.on_event("startup")` 的 `init_db()` 会将表建在文件数据库上，内存引擎需在 `client` 夹具中显式 `Base.metadata.create_all(bind=engine)`
+  - `patch('app.routers.agent.get_db')` 对 FastAPI 依赖注入无效（依赖在路由注册时已绑定），改用 `app.dependency_overrides`
+  - 全局异常处理器 `Exception` 宽泛捕获会把 `RequestValidationError(422)` 吞成 500，已于 2026-07-25 修复
+- 测试数量：106 通过（2026-07-24）→ **108 通过**（2026-07-25，新增 2 个错误处理测试）

@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from typing import List
 from ..database import get_db
+from ..dependencies import verify_admin, limit_analysis
 from ..models import ClassicText, MedicalCase, LearningHistory
 from ..schemas import AnalysisQuery, AnalysisResponse, MedicalCaseResponse
 from ..services.ai_service import get_ai_service
@@ -98,7 +99,8 @@ async def get_ai_status():
 @router.post("/query", response_model=AnalysisResponse, summary="条文分析")
 async def analyze_text(
     query: AnalysisQuery,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _rl: None = Depends(limit_analysis),
 ):
     """输入条文内容，匹配相关病案并返回AI分析结果"""
     # 1. 在数据库中搜索匹配的条文
@@ -200,7 +202,7 @@ async def get_analysis_history(
 
 
 @router.delete("/log/{log_id}", status_code=204, summary="删除一条日志")
-async def delete_analysis_log(log_id: int, db: Session = Depends(get_db)):
+async def delete_analysis_log(log_id: int, db: Session = Depends(get_db), _admin: str = Depends(verify_admin)):
     """删除指定 ID 的学习记录"""
     from fastapi import HTTPException
     from fastapi.responses import Response
