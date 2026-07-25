@@ -2,13 +2,13 @@
 文档管理路由
 """
 import os
-import shutil
 from datetime import datetime
 from pathlib import Path
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, BackgroundTasks, Query
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, BackgroundTasks, Query, Request
 from sqlalchemy.orm import Session
 from typing import List
 from ..database import get_db
+from ..dependencies import verify_admin, limit_upload
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from ..models import Document, ClassicText, MedicalCase
@@ -196,14 +196,58 @@ def _extract_prescription(content: str) -> str:
     return None
 
 
+# 文件上传大小限制
+MAX_UPLOAD_NORMAL = 20 * 1024 * 1024    # 20MB，无需额外验证
+MAX_UPLOAD_HARD   = 200 * 1024 * 1024   # 200MB，绝对上限
+
+
 @router.post("/upload", response_model=MessageResponse, summary="上传文档")
 async def upload_document(
+    request: Request,
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _admin: str = Depends(verify_admin),
+    _rl: None = Depends(limit_upload),
 ):
-    """上传文档，支持 PDF、Word、TXT、Excel，后台自动解析并提取条文与病案"""
-    # 检查文件类型
+    """上传文档，支持 PDF、Word、TXT、Excel，后台自动解析并提取条文与病案。
+
+    大小限制：
+    - ≤ 20MB：直接上传
+    - 20MB ~ 200MB：需在请求头 `X-Upload-Password` 中附加管理员密码
+    - > 200MB：拒绝
+    """
+    import secrets as _secrets
+
+    # 1. 检查文件大小（优先从 Content-Length 获取）
+    content_length = request.headers.get("content-length")
+    if content_length:
+        try:
+            file_size_hint = int(content_length)
+        except ValueError:
+            file_size_hint = None
+    else:
+        file_size_hint = None
+
+    # 硬上限
+    if file_size_hint and file_size_hint > MAX_UPLOAD_HARD:
+        raise HTTPException(
+            status_code=413,
+            detail=f"文件过大（{file_size_hint / 1024 / 1024:.1f}MB），最大允许 {MAX_UPLOAD_HARD // 1024 // 1024}MB"
+        )
+
+    # 分级验证：> 20MB 需要额外密码
+    if file_size_hint and file_size_hint > MAX_UPLOAD_NORMAL:
+        upload_password = request.headers.get("X-Upload-Password", "")
+        correct = os.environ.get("ADMIN_PASSWORD", "jingui2026")
+        if not _secrets.compare_digest(upload_password.encode(), correct.encode()):
+            raise HTTPException(
+                status_code=401,
+                detail=f"文件超过 20MB（{file_size_hint / 1024 / 1024:.1f}MB），"
+                       f"请在请求头 X-Upload-Password 中提供管理员密码"
+            )
+
+    # 2. 检查文件类型
     allowed_types = [
         "application/pdf",
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -212,7 +256,7 @@ async def upload_document(
         "application/vnd.ms-excel",
         "text/plain"
     ]
-    
+
     if file.content_type not in allowed_types and not any(
         file.filename.lower().endswith(ext) 
         for ext in ['.pdf', '.docx', '.doc', '.xlsx', '.xls', '.txt']
@@ -221,22 +265,47 @@ async def upload_document(
             status_code=400, 
             detail="不支持的文件类型，仅支持PDF、Word、Excel、TXT格式"
         )
-    
-    # 生成唯一文件名
+
+    # 3. 生成唯一文件名
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     file_ext = Path(file.filename).suffix
     safe_filename = f"{timestamp}_{file.filename}"
     file_path = os.path.join(UPLOAD_DIR, safe_filename)
-    
-    # 保存文件
+
+    # 4. 流式保存（同时检查实际大小，防止 Content-Length 伪造绕过）
     try:
+        bytes_written = 0
         with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-        file_size = os.path.getsize(file_path)
+            while chunk := file.file.read(1024 * 1024):  # 1MB chunks
+                bytes_written += len(chunk)
+                if bytes_written > MAX_UPLOAD_HARD:
+                    buffer.close()
+                    os.unlink(file_path)
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"文件实际大小超过 {MAX_UPLOAD_HARD // 1024 // 1024}MB 上限"
+                    )
+                # 如果未提供 Content-Length 且超过 20MB，中途拦截
+                if not content_length and bytes_written > MAX_UPLOAD_NORMAL:
+                    upload_password = request.headers.get("X-Upload-Password", "")
+                    correct = os.environ.get("ADMIN_PASSWORD", "jingui2026")
+                    if not _secrets.compare_digest(upload_password.encode(), correct.encode()):
+                        buffer.close()
+                        os.unlink(file_path)
+                        raise HTTPException(
+                            status_code=401,
+                            detail="文件超过 20MB，请在请求头 X-Upload-Password 中提供管理员密码"
+                        )
+                buffer.write(chunk)
+        file_size = bytes_written
+    except HTTPException:
+        raise
     except Exception as e:
+        if os.path.exists(file_path):
+            os.unlink(file_path)
         raise HTTPException(status_code=500, detail=f"文件保存失败: {str(e)}")
-    
-    # 保存文件信息到数据库
+
+    # 5. 保存文件信息到数据库
     doc = Document(
         filename=file.filename,
         file_type=file.content_type or "unknown",
@@ -247,12 +316,12 @@ async def upload_document(
     db.add(doc)
     db.commit()
     db.refresh(doc)
-    
-    # 后台处理文档
+
+    # 6. 后台处理文档
     background_tasks.add_task(process_document, doc.id, file_path)
-    
+
     return MessageResponse(
-        message=f"文件 {file.filename} 上传成功，正在后台解析...",
+        message=f"文件 {file.filename}（{file_size / 1024 / 1024:.1f}MB）上传成功，正在后台解析...",
         success=True
     )
 

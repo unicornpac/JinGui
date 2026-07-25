@@ -6,6 +6,7 @@ from fastapi.responses import Response
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from ..database import get_db
+from ..dependencies import verify_admin
 from ..models import ClassicText
 from ..schemas import ClassicTextCreate, ClassicTextUpdate, ClassicTextResponse, BatchDeleteIds, MessageResponse
 
@@ -15,7 +16,8 @@ router = APIRouter()
 @router.post("/", response_model=ClassicTextResponse, status_code=201, summary="创建条文")
 async def create_text(
     text: ClassicTextCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _admin: str = Depends(verify_admin),
 ):
     """创建新条文"""
     db_text = ClassicText(**text.model_dump())
@@ -52,7 +54,8 @@ async def get_texts(
 @router.post("/batch-delete", response_model=MessageResponse, summary="批量删除条文")
 async def batch_delete_texts(
     body: BatchDeleteIds,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _admin: str = Depends(verify_admin),
 ):
     """批量删除指定ID的条文"""
     ids = body.ids or []
@@ -79,7 +82,8 @@ async def get_text(
 async def update_text(
     text_id: int,
     text_update: ClassicTextUpdate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _admin: str = Depends(verify_admin),
 ):
     """更新条文"""
     text = db.query(ClassicText).filter(ClassicText.id == text_id).first()
@@ -98,9 +102,9 @@ async def update_text(
 @router.delete("/{text_id}", status_code=204, summary="删除条文")
 async def delete_text(
     text_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _admin: str = Depends(verify_admin),
 ):
-    """删除条文"""
     text = db.query(ClassicText).filter(ClassicText.id == text_id).first()
     if not text:
         raise HTTPException(status_code=404, detail="条文不存在")
