@@ -367,3 +367,27 @@ AI_MODEL=deepseek-chat
   - `patch('app.routers.agent.get_db')` 对 FastAPI 依赖注入无效（依赖在路由注册时已绑定），改用 `app.dependency_overrides`
   - 全局异常处理器 `Exception` 宽泛捕获会把 `RequestValidationError(422)` 吞成 500，已于 2026-07-25 修复
 - 测试数量：106 通过（2026-07-24）→ **108 通过**（2026-07-25，新增 2 个错误处理测试）
+
+### 2026-07-27 会话记录
+
+**修复 AI 患者对正确诊断的识别反馈**
+
+- 原问题：AI 面对学生正确诊断时仍然不理解/疑惑，因为提示词禁止任何确认 + 进度状态缺少行为指令
+- 根因分析：
+  - System Prompt 明确写死"绝对不做：不评价学生说得对不对"——学生说对了 AI 也装不知道
+  - `{step1_status}` 等占位符只显示"已完成/未完成"标签，没有任何行为指令挂钩
+  - 患者角色不能理解中医术语，无法用专业语言确认
+- 改进内容：
+  - `prompts_config.py`：
+    - SAFETY_GUARD 新增"进度感知与行为变化"段落，为辨病/平脉/析证/定治四个阶段分别定义患者行为——"对，就这感觉"（初步信任）→ "终于有人懂我了"（完全配合）
+    - 三份 System Prompt 将"绝对不做"改为"当医生说中你的感觉时：用患者日常语言自然确认身体感受"。确认仅限感受共鸣层面，绝不说"你诊断对了"这类教学评价语
+  - `agent_service.py`：
+    - `_build_system_prompt()` 末尾调用新方法 `_build_progress_hint()` 生成动态行为指令
+    - `_build_progress_hint()` 根据后端识别的 `progress` 四阶段标志位拼接对应指令
+- 测试：108 个测试全部通过，无回归
+- 涉及文件：`app/services/prompts_config.py`、`app/services/agent_service.py`、`IMPROVEMENT_LOG.md`、`PROJECT_MEMORY.md`
+
+**部署踩坑**
+
+- 服务器 `wget` 无写权限，需加 `sudo`：`sudo wget -O /root/JinGui/... https://raw...`
+- 已在 `SERVER_DEPLOY_GUIDE.md` 中标注（待更新）
