@@ -206,3 +206,4 @@
 | 2026-07-25 | P0-1 | API 路由认证保护（13 个写端点） | `app/dependencies.py`、`app/main.py`、`app/routers/texts.py`、`cases.py`、`analysis.py`、`agent.py` |
 | 2026-07-25 | P0-2 | 请求频率限制（自实现 SimpleRateLimiter） | `app/dependencies.py`、`app/routers/agent.py`、`analysis.py`、`documents.py` |
 | 2026-07-25 | P0-3 | 文件上传大小限制 + 分级密码（20MB/200MB） | `app/routers/documents.py` |
+| 2026-07-27 | — | **修复 AI 患者对正确诊断的识别反馈**：提示词从\"绝对不确认\"改为\"允许患者语言自然肯定\"，新增 `_build_progress_hint()` 根据后端进度动态注入行为指令（信任感流露→主动补充细节→完全配合），SAFETY_GUARD 新增\"进度感知与行为变化\"段落 | `app/services/prompts_config.py`、`app/services/agent_service.py` |
