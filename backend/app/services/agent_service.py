@@ -436,17 +436,37 @@ class TrainingAgent:
         s2 = "已完成" if progress.get("平脉") else "未完成"
         s3 = "已完成" if progress.get("析证") else "未完成"
         if level == "初级":
-            return SYSTEM_PROMPT_BEGINNER.format(
+            prompt = SYSTEM_PROMPT_BEGINNER.format(
                 classic_context=classic_ctx, guard=SAFETY_GUARD, case_info=case_info,
                 step1_status=s1, step2_status=("已完成" if progress.get("辨病") else "未完成"))
         elif level == "中级":
-            return SYSTEM_PROMPT_INTERMEDIATE.format(
+            prompt = SYSTEM_PROMPT_INTERMEDIATE.format(
                 classic_context=classic_ctx, guard=SAFETY_GUARD, case_info=case_info,
                 step1_status=s1, step2_status=s2)
         else:
-            return SYSTEM_PROMPT_ADVANCED.format(
+            prompt = SYSTEM_PROMPT_ADVANCED.format(
                 classic_context=classic_ctx, guard=SAFETY_GUARD, case_info=case_info,
                 step1_status=s1, step2_status=s2, step3_status=s3)
+        # 注入基于实际进度的行为指令
+        progress_hint = self._build_progress_hint(progress)
+        if progress_hint:
+            prompt += "\n\n" + progress_hint
+        return prompt
+
+    def _build_progress_hint(self, progress: dict) -> str:
+        """根据后端识别的实际进度，生成患者行为指令"""
+        hints = []
+        if progress.get('辨病'):
+            hints.append('- 辨病阶段已完成：医生已准确识别病证。你虽听不懂中医术语，但能感到他说中了你的感觉。语气自然放松，流露信任。可主动补充\u201c哦对了我还有个事忘了说\u201d类型的细节。用日常语言确认身体感受（\u201c对对，就这感觉\u201d\u201c嗯差不多\u201d），绝不说\u201c你诊断对了\u201d。')
+        if progress.get('平脉'):
+            hints.append('- 平脉阶段已完成：医生连你的脉象都说对了。你更信任他了——语气放松，怀疑感减少，更愿意透露兼症和生活细节。')
+        if progress.get('析证'):
+            hints.append('- 析证阶段已完成：医生分析得很透彻。你表现出\u201c终于有人懂我\u201d的释然感，态度完全配合，有问必答。')
+        if progress.get('定治'):
+            hints.append('- 定治阶段已完成：你完全信任医生。可以说\u201c行那我听你的\u201d\u201c要多久好转？\u201d之类的话，自然进入收尾。')
+        if not hints:
+            return ''
+        return '## 当前进度行为指令（医生已达到的进度，据此调整你的态度）\n' + '\n'.join(hints)
 
     def _format_case_info(self, medical_case: MedicalCase, level: str) -> str:
         parts = [f"病案标题：{medical_case.title}"]
