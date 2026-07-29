@@ -21,8 +21,12 @@ if [ ! -d "${REPO_DIR}/.git" ]; then
   echo "  克隆仓库..."
   sudo git clone https://github.com/unicornpac/JinGui.git "${REPO_DIR}"
 else
-  echo "  拉取最新代码..."
-  cd "${REPO_DIR}" && sudo git pull origin main
+  echo "  强制同步到最新代码..."
+  cd "${REPO_DIR}"
+  sudo git checkout -- . 2>/dev/null || true
+  sudo git clean -fd 2>/dev/null || true
+  sudo git fetch origin main
+  sudo git reset --hard origin/main
 fi
 
 # 2. 数据库迁移 + 初始化篇章元数据
