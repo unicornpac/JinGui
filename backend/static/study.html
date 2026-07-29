@@ -70,6 +70,7 @@ body{font-family:-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;backgr
 <div class="container">
   <div class="tabs" id="mainTabs">
     <div class="tab active" onclick="showPanel('disease')">🩺 按病证学习</div>
+    <div class="tab" onclick="showPanel('chapters')">📋 按篇章浏览</div>
     <div class="tab" onclick="showPanel('search')">🔍 全文搜索</div>
   </div>
 
@@ -81,6 +82,16 @@ body{font-family:-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;backgr
       <h2 id="detailTitle" style="color:#5c3d2e;margin-bottom:8px;"></h2>
       <p id="detailDesc" style="color:#8a7a6a;margin-bottom:16px;line-height:1.7;"></p>
       <div class="text-list" id="detailTexts"></div>
+    </div>
+  </div>
+
+  <!-- 按篇章浏览（新） -->
+  <div class="panel" id="panelChapters">
+    <div id="chapterTree"><div class="loading-text">加载篇章结构…</div></div>
+    <button class="back-btn" id="chapBackBtn" onclick="backToChapters()" style="display:none">← 返回篇章列表</button>
+    <div id="chapterDetail" style="display:none">
+      <h2 id="chapDetailTitle" style="color:#5c3d2e;margin-bottom:8px;"></h2>
+      <div class="text-list" id="chapDetailTexts"></div>
     </div>
   </div>
 
@@ -129,14 +140,14 @@ async function init() {
 }
 
 function showPanel(name) {
-  document.querySelectorAll('#mainTabs .tab').forEach(t => t.classList.toggle('active', false));
+  document.querySelectorAll('#mainTabs .tab').forEach((t,i) => {
+    t.classList.toggle('active', (name==='disease'&&i===0)||(name==='chapters'&&i===1)||(name==='search'&&i===2));
+  });
   document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
-  if (name==='disease') {
-    document.querySelector('#mainTabs .tab:first-child').classList.add('active');
-    document.getElementById('panelDisease').classList.add('active');
-  } else {
-    document.querySelector('#mainTabs .tab:last-child').classList.add('active');
-    document.getElementById('panelSearch').classList.add('active');
+  document.getElementById('panel'+{disease:'Disease',chapters:'Chapters',search:'Search'}[name]).classList.add('active');
+  if (name === 'chapters' && !window._chapterTreeLoaded) {
+    loadChapterTree();
+    window._chapterTreeLoaded = true;
   }
 }
 
@@ -234,6 +245,64 @@ function doSearch() {
 function resetSearch() { document.getElementById('searchInput').value=''; document.getElementById('searchResults').innerHTML='<div class="empty">输入关键词搜索</div>'; }
 
 function esc(s){if(!s)return'';const d=document.createElement('div');d.textContent=s;return d.innerHTML}
+
+// ========== 篇章树浏览 ==========
+async function loadChapterTree() {
+  const el = document.getElementById('chapterTree');
+  try {
+    const resp = await fetch(API + '/texts/chapters');
+    const books = await resp.json();
+    if (!books || !books.length) { el.innerHTML = '<div class="empty">暂无篇章数据，请先导入条文</div>'; return; }
+    el.innerHTML = books.map(book => {
+      const totalActual = book.chapters.reduce((s,ch) => s + (ch.actual_count||0), 0);
+      return '<div style="margin-bottom:20px">' +
+        '<h3 style="color:#5c3d2e;margin-bottom:10px;font-size:18px">' + esc(book.book) +
+        ' <span style="font-size:13px;color:#b0a090;font-weight:400">（' + totalActual + ' 条）</span></h3>' +
+        '<div class="disease-grid">' +
+        book.chapters.map(ch => {
+          const warn = ch.actual_count===0 ? '<div class="desc" style="color:#c0392b">无数据</div>' : '';
+          return '<div class="disease-card" onclick="showChapter(\'' +
+            esc(book.book) + '\',\'' + esc(ch.chapter) + '\',\'' + (ch.section||'') + '\')">' +
+            '<h3>' + esc(ch.chapter) + (ch.section?'（'+esc(ch.section)+'）':'') + '</h3>' +
+            '<div class="count">' + (ch.actual_count||0) + ' 条' +
+            (ch.expected_count?' / 预期 '+ch.expected_count+' 条':'') + '</div>' + warn + '</div>';
+        }).join('') + '</div></div>';
+    }).join('');
+  } catch(e) {
+    el.innerHTML = '<div class="empty">加载失败: '+esc(String(e))+'</div>';
+  }
+}
+
+async function showChapter(book, chapter, section) {
+  document.getElementById('chapterTree').style.display = 'none';
+  document.getElementById('chapBackBtn').style.display = 'inline-block';
+  document.getElementById('chapterDetail').style.display = 'block';
+  document.getElementById('chapDetailTitle').textContent = book + ' · ' + chapter + (section?'（'+section+'）':'');
+  const el = document.getElementById('chapDetailTexts');
+  el.innerHTML = '<div class="loading-text">加载中…</div>';
+  try {
+    var params = 'source_book=' + encodeURIComponent(book) + '&chapter=' + encodeURIComponent(chapter) + '&limit=500&sort_by=article_number';
+    if (section) params += '&section=' + encodeURIComponent(section);
+    const texts = await (await fetch(API + '/texts?' + params)).json();
+    if (!texts.length) { el.innerHTML = '<div class="empty">本章节暂无条文</div>'; return; }
+    el.innerHTML = texts.map(function(t) {
+      var num = t.article_number ? '<span style="color:#8b5a2b;font-weight:700;font-size:13px">第'+t.article_number+'条</span>' : '';
+      var vfy = t.verified ? '<span style="color:#27ae60;font-size:11px;margin-left:auto">已校验</span>' : '';
+      var kw = t.keywords ? '<div style="color:#8b5a2b;font-size:12px;margin-top:4px">关键词：'+esc(t.keywords)+'</div>' : '';
+      return '<div class="text-item"><div class="hdr"><span class="src-badge">'+esc(t.source_book)+'</span> ' +
+        num + vfy + '</div><div class="content">'+esc(t.content)+'</div>'+kw+'</div>';
+    }).join('');
+  } catch(e) {
+    el.innerHTML = '<div class="empty">加载失败</div>';
+  }
+}
+
+function backToChapters() {
+  document.getElementById('chapterTree').style.display = 'block';
+  document.getElementById('chapBackBtn').style.display = 'none';
+  document.getElementById('chapterDetail').style.display = 'none';
+}
+
 init();
 </script>
 </body>

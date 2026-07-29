@@ -208,30 +208,76 @@ class DocumentParser:
             "file_type": "txt"
         }
     
-    def _detect_source_and_chapter(self, content: str, filename: str = "") -> Tuple[str, Optional[str]]:
-        """从内容或文件名推断来源经典和章节"""
-        combined = (content[:2000] + " " + filename).lower()
-        source_book = "未知经典"
+    def _detect_source_book(self, content: str, filename: str = "") -> str:
+        """从内容或文件名推断来源经典"""
+        combined = (content[:3000] + " " + filename).lower()
+        if any(kw in combined for kw in ["伤寒论", "伤寒"]):
+            return "《伤寒论》"
+        if any(kw in combined for kw in ["金匮", "金匮要略"]):
+            return "《金匮要略》"
+        return "《伤寒论》"  # 默认
+
+    def _find_all_chapter_boundaries(self, content: str) -> List[Tuple[int, str, Optional[str], Optional[str]]]:
+        """
+        扫描全文，找出所有篇章分界位置。
+        
+        Returns: [(位置, 篇章名, 子篇(section), 来源书), ...] 按位置排序
+        
+        支持：
+        - 《伤寒论》六经+霍乱+阴阳易 章节标题
+        - 《金匮要略》25篇标题（含"第X"序号）
+        """
+        boundaries = []
+        
+        # ── 伤寒论章节模式 ──
+        shanghan_chapter_pat = re.compile(
+            r'辨(太阳|阳明|少阳|太阴|少阴|厥阴)病脉证并治[（(]?([上下中])?[)）]?'
+        )
+        shanghan_extra_pat = re.compile(
+            r'辨(霍乱|阴阳易差后劳复)病脉证并治'
+        )
+        
+        for m in shanghan_chapter_pat.finditer(content):
+            jing = m.group(1)  # 太阳/阳明/...
+            sub = m.group(2) if m.group(2) else None  # 上/中/下
+            chapter = f"辨{jing}病脉证并治"
+            boundaries.append((m.start(), chapter, sub, "《伤寒论》"))
+        
+        for m in shanghan_extra_pat.finditer(content):
+            name = m.group(1)
+            chapter = f"辨{name}病脉证并治"
+            boundaries.append((m.start(), chapter, None, "《伤寒论》"))
+        
+        # ── 金匮要略章节模式（"XX病脉证并治第X" 或 "XX第X"）──
+        jingui_chapter_pat = re.compile(
+            r'([脏腑经络先后痉湿暍百合狐惑阴阳毒疟中风历节血痹虚劳肺痿肺痈咳嗽上气奔豚气胸痹心痛短气腹满寒疝宿食五脏风寒积聚痰饮咳嗽消渴小便不利淋水气黄疸惊悸吐衄下血胸满瘀血呕吐哕下利疮痈肠痈浸淫趺蹶手指臂肿转筋阴狐疝蛔虫妇人妊娠妇人产后妇人杂杂疗禽兽鱼虫禁忌果实菜谷禁忌]+(?:病脉证[并治]*|病脉证治|方|禁忌并治|禁忌)[第]?[一二三四五六七八九十百廿卅]+)'
+        )
+        for m in jingui_chapter_pat.finditer(content):
+            chapter = m.group(0).strip().rstrip("。，,. ")
+            if len(chapter) > 8 and len(chapter) < 80:
+                boundaries.append((m.start(), chapter, None, "《金匮要略》"))
+        
+        # 按位置排序
+        boundaries.sort(key=lambda x: x[0])
+        return boundaries
+
+    def _assign_chapter_to_position(self, pos: int, boundaries: List[Tuple[int, str, Optional[str], Optional[str]]],
+                                     default_book: str) -> Tuple[str, Optional[str]]:
+        """
+        根据文本位置和章节分界，确定它属于哪个篇章。
+        返回 (chapter, section)
+        """
         chapter = None
+        section = None
+        for b_pos, b_ch, b_sec, _ in boundaries:
+            if b_pos <= pos:
+                chapter = b_ch
+                section = b_sec
         
-        for book, keywords in SOURCE_BOOK_KEYWORDS.items():
-            if any(kw in combined for kw in keywords):
-                source_book = book
-                break
-        
-        # 章节识别（伤寒论六经辨证等）
-        chapter_patterns = [
-            (r'辨(太阳|阳明|少阳|太阴|少阴|厥阴)病脉证并治[（(]?[上下中]?[)）]?', r'辨\1病脉证并治'),
-            (r'辨霍乱病脉证并治', '辨霍乱病脉证并治'),
-            (r'辨阴阳易差后劳复病脉证并治', '辨阴阳易差后劳复病脉证并治'),
-        ]
-        for pat, repl in chapter_patterns:
-            m = re.search(pat, content[:1500])
-            if m:
-                chapter = m.group(0).strip()
-                break
-        
-        return source_book, chapter
+        if chapter is None:
+            chapter = "辨太阳病脉证并治"  # 默认
+
+        return chapter, section
 
     def _normalize_content(self, content: str) -> str:
         """标准化文本：统一换行、去除多余空白"""
@@ -309,10 +355,12 @@ class DocumentParser:
         self, content: str, filename: str = ""
     ) -> Dict[str, any]:
         """
-        从解析的文本中提取条文和病案，并识别来源经典、章节
-        优先按「第X条」精确分割，避免伤寒论398条断句错误与混淆
+        从解析的文本中提取条文和病案，逐条识别章节归属。
+        核心修复：每条条文根据其在文档中的位置，向前查找最近的章节标记。
         """
-        source_book, chapter = self._detect_source_and_chapter(content, filename)
+        source_book = self._detect_source_book(content, filename)
+        chapter_boundaries = self._find_all_chapter_boundaries(content)
+        
         texts_raw = []
         cases_raw = []
         seen_texts = set()
@@ -324,16 +372,22 @@ class DocumentParser:
                 t_clean = t[:2000].strip()
                 if t_clean and t_clean not in seen_texts and 15 < len(t_clean) < 2000:
                     seen_texts.add(t_clean)
+                    # 根据条文在原文中的位置确定章节
+                    pos = content.find(t_clean[:30])
+                    if pos < 0:
+                        pos = content.find(t_clean[:15])
+                    chapter, section = self._assign_chapter_to_position(
+                        max(pos, 0), chapter_boundaries, source_book)
                     texts_raw.append({
                         "content": t_clean,
                         "source_book": source_book,
-                        "chapter": chapter
+                        "chapter": chapter,
+                        "section": section
                     })
-            # 若已按第X条成功分割，且数量较多，视为纯条文文档，不再提取病案
             if len(texts_raw) >= 5:
                 return {"texts": texts_raw, "cases": cases_raw}
 
-        # ========== 策略2：其他条文格式（第X条单条匹配、数字编号等）==========
+        # ========== 策略2：其他条文格式 ==========
         if not texts_raw:
             patterns = [
                 (r'第[一二三四五六七八九十百千\d]+条[：:\.\s]*([^\n]+(?:\n(?![第\d一二三四五六七八九十百千]+条)[^\n]*)*)', 1),
@@ -344,9 +398,16 @@ class DocumentParser:
                     t = (m.group(grp) if m.lastindex >= grp else m.group(0)).strip()
                     if 15 < len(t) < 1500 and t not in seen_texts:
                         seen_texts.add(t)
-                        texts_raw.append({"content": t[:2000], "source_book": source_book, "chapter": chapter})
+                        chapter, section = self._assign_chapter_to_position(
+                            m.start(), chapter_boundaries, source_book)
+                        texts_raw.append({
+                            "content": t[:2000],
+                            "source_book": source_book,
+                            "chapter": chapter,
+                            "section": section
+                        })
 
-        # ========== 策略3：六经病开头（仅当第X条未匹配到时）==========
+        # ========== 策略3：六经病开头 ==========
         if not tiao_items:
             for sep in ['太阳病', '阳明病', '少阳病', '太阴病', '少阴病', '厥阴病']:
                 parts = content.split(sep)
@@ -358,9 +419,17 @@ class DocumentParser:
                     t = (sep + rest).strip() if rest else ""
                     if 25 < len(t) < 800 and t not in seen_texts:
                         seen_texts.add(t)
-                        texts_raw.append({"content": t[:2000], "source_book": source_book, "chapter": chapter})
+                        idx = content.find(t[:20])
+                        chapter, section = self._assign_chapter_to_position(
+                            max(idx, 0), chapter_boundaries, source_book)
+                        texts_raw.append({
+                            "content": t[:2000],
+                            "source_book": source_book,
+                            "chapter": chapter,
+                            "section": section
+                        })
 
-        # ========== 病案提取（仅在非纯条文文档时）==========
+        # ========== 病案提取 ==========
         case_keywords = ['患者', '主诉', '现病史', '方药', '处方', '诊断', '症见']
         has_case_hint = any(k in content for k in case_keywords)
         if has_case_hint or len(texts_raw) < 10:
@@ -383,7 +452,15 @@ class DocumentParser:
                 if any(k in para for k in ['太阳病', '阳明病', '伤寒', '桂枝', '麻黄']) and len(para) < 500:
                     if para not in seen_texts:
                         seen_texts.add(para)
-                        texts_raw.append({"content": para[:2000], "source_book": source_book, "chapter": chapter})
+                        idx = content.find(para[:20])
+                        chapter, section = self._assign_chapter_to_position(
+                            max(idx, 0), chapter_boundaries, source_book)
+                        texts_raw.append({
+                            "content": para[:2000],
+                            "source_book": source_book,
+                            "chapter": chapter,
+                            "section": section
+                        })
                 elif any(k in para for k in case_keywords) and len(para) > 60:
                     cases_raw.append({"content": para[:2000], "title": para.split("\n")[0][:50] or "病案"})
 

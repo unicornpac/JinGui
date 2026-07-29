@@ -1,7 +1,7 @@
 """
 数据库模型定义
 """
-from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, JSON
+from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Boolean, JSON
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from .database import Base
@@ -21,16 +21,35 @@ class Category(Base):
     cases = relationship("MedicalCase", back_populates="category")
 
 
+class ChapterMeta(Base):
+    """篇章元数据表 —— 定义每本书的正确篇章结构和层级"""
+    __tablename__ = "chapter_meta"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    book = Column(String(50), nullable=False, comment="书：《伤寒论》或《金匮要略》")
+    chapter = Column(String(200), nullable=False, comment="篇章名")
+    section = Column(String(100), comment="子篇（如太阳病 上/中/下）")
+    order_index = Column(Integer, nullable=False, comment="篇章排序")
+    article_count_expected = Column(Integer, comment="该篇章预期条文数（用于校验）")
+
+
 class ClassicText(Base):
-    """经典条文表"""
+    """经典条文表 —— 支持书→篇章→条文 三级结构"""
     __tablename__ = "classic_texts"
     
     id = Column(Integer, primary_key=True, index=True)
-    source_book = Column(String(200), nullable=False, comment="来源经典，如《伤寒论》")
-    chapter = Column(String(200), comment="章节")
+    source_book = Column(String(200), nullable=False, comment="来源经典：《伤寒论》或《金匮要略》")
+    chapter = Column(String(200), comment="篇章名（如 辨太阳病脉证并治）")
+    section = Column(String(100), comment="子篇（如 上/中/下，仅太阳病需要）")
+    article_number = Column(Integer, comment="条文编号（如 1, 2, 3...398）")
+    order_index = Column(Integer, comment="篇章内排序序号")
     content = Column(Text, nullable=False, comment="条文内容")
     keywords = Column(String(500), comment="关键词，逗号分隔")
     category_id = Column(Integer, ForeignKey("categories.id"), comment="分类ID")
+    # 互联网校验字段
+    verified = Column(Boolean, default=False, comment="是否已通过互联网比对校验")
+    verified_at = Column(DateTime(timezone=True), comment="校验时间")
+    source_url = Column(String(500), comment="互联网参考来源URL")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
