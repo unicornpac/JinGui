@@ -1,35 +1,57 @@
 #!/bin/bash
 # ============================================================
-# 服务器端一键部署（首次装 Git，后续 git pull 秒级完成）
-# 在阿里云服务器上执行：bash server_deploy.sh
-# 以后更新：cd /root/JinGui && sudo git pull && sudo systemctl restart jingui
+# 服务器端部署（优先 git，失败则 wget，适配国内网络）
+# 执行：sudo bash /tmp/deploy.sh
 # ============================================================
 set -e
 
 REPO_DIR="/root/JinGui"
+RAW_BASE="https://raw.githubusercontent.com/unicornpac/JinGui/main/backend"
+
+FILES=(
+  "app/database.py"
+  "app/models.py"
+  "app/schemas.py"
+  "app/services/parser.py"
+  "app/services/text_verifier.py"
+  "app/routers/texts.py"
+  "seed_texts.py"
+  "static/study.html"
+)
 
 echo "========================================"
 echo "  条文模块改进部署"
 echo "========================================"
 
-# 1. 首次：装 Git + 克隆仓库（已有则 git pull）
+# 1. 代码同步：优先 git pull，失败则 wget 逐个下载
 echo ""
-echo "[1/3] 准备代码..."
-if [ ! -d "${REPO_DIR}/.git" ]; then
-  echo "  首次部署，安装 Git..."
-  sudo apt-get update -qq && sudo apt-get install -y -qq git
-  echo "  克隆仓库..."
-  sudo git clone https://github.com/unicornpac/JinGui.git "${REPO_DIR}"
-else
-  echo "  强制同步到最新代码..."
+echo "[1/3] 同步代码..."
+
+SYNC_OK=false
+
+if [ -d "${REPO_DIR}/.git" ]; then
+  echo "  尝试 git pull..."
   cd "${REPO_DIR}"
   sudo git checkout -- . 2>/dev/null || true
   sudo git clean -fd 2>/dev/null || true
-  sudo git fetch origin main
-  sudo git reset --hard origin/main
+  if sudo git fetch origin main 2>/dev/null; then
+    sudo git reset --hard origin/main 2>/dev/null && SYNC_OK=true && echo "  git pull 成功"
+  fi
 fi
 
-# 2. 数据库迁移 + 初始化篇章元数据
+if ! $SYNC_OK; then
+  echo "  git 不可用，改用 wget 下载..."
+  mkdir -p "${REPO_DIR}/backend"
+  for f in "${FILES[@]}"; do
+    dest="${REPO_DIR}/backend/${f}"
+    dir=$(dirname "$dest")
+    sudo mkdir -p "$dir"
+    echo "    -> ${f}"
+    sudo wget -q -O "$dest" "${RAW_BASE}/${f}" || echo "    !! ${f} 下载失败"
+  done
+fi
+
+# 2. 数据库迁移 + 篇章元数据
 echo ""
 echo "[2/3] 数据库迁移..."
 cd "${REPO_DIR}/backend"
@@ -56,7 +78,6 @@ curl -s http://localhost:8000/api/texts/chapters | python3 -m json.tool 2>/dev/n
 
 echo ""
 echo "========================================"
-echo "  部署完成！"
-echo "  以后只需: cd /root/JinGui && sudo git pull && sudo systemctl restart jingui"
+echo "  部署完成"
 echo "  http://121.40.170.154:8000/study"
 echo "========================================"
