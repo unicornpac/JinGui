@@ -8,8 +8,11 @@ from datetime import datetime
 
 # ========== 经典条文 ==========
 class ClassicTextBase(BaseModel):
-    source_book: str = Field(..., description="来源经典，如《伤寒论》")
-    chapter: Optional[str] = Field(None, description="章节")
+    source_book: str = Field(..., description="来源经典：《伤寒论》或《金匮要略》")
+    chapter: Optional[str] = Field(None, description="篇章名（如 辨太阳病脉证并治）")
+    section: Optional[str] = Field(None, description="子篇（如 上/中/下）")
+    article_number: Optional[int] = Field(None, description="条文编号（如 1, 2, 3...398）")
+    order_index: Optional[int] = Field(None, description="篇章内排序")
     content: str = Field(..., description="条文内容")
     keywords: Optional[str] = Field(None, description="关键词，逗号分隔")
 
@@ -21,17 +24,50 @@ class ClassicTextCreate(ClassicTextBase):
 class ClassicTextUpdate(BaseModel):
     source_book: Optional[str] = None
     chapter: Optional[str] = None
+    section: Optional[str] = None
+    article_number: Optional[int] = None
+    order_index: Optional[int] = None
     content: Optional[str] = None
     keywords: Optional[str] = None
 
 
 class ClassicTextResponse(ClassicTextBase):
     id: int
+    verified: bool = False
+    verified_at: Optional[datetime] = None
+    source_url: Optional[str] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
+
+
+# ========== 互联网校验 ==========
+class TextVerifyRequest(BaseModel):
+    """单条条文校验请求"""
+    text_id: int = Field(..., description="要校验的条文ID")
+
+
+class TextVerifyResponse(BaseModel):
+    """校验结果"""
+    text_id: int
+    article_number: Optional[int] = None
+    expected_article_number: Optional[int] = Field(None, description="互联网参考的条文编号")
+    chapter_correct: bool = Field(False, description="章节归属是否正确")
+    content_match: bool = Field(False, description="内容是否与权威来源一致")
+    expected_chapter: Optional[str] = Field(None, description="互联网参考的篇章名")
+    source_url: Optional[str] = Field(None, description="互联网参考来源")
+    detail: Optional[str] = Field(None, description="详细比对说明")
+    verified: bool = False
+
+
+class TextVerifyBatchResponse(BaseModel):
+    """批量校验结果"""
+    total: int
+    verified: int
+    fixed: int
+    details: List[TextVerifyResponse] = []
 
 
 # ========== 病案 ==========
