@@ -204,7 +204,7 @@ fi
 HEALTH_OK=false
 for attempt in $(seq 1 15); do
   if sudo systemctl is-active --quiet jingui \
-    && curl -fsS --max-time 3 http://localhost:8000/api/texts/distribution >/dev/null; then
+    && curl -fsS --max-time 3 http://localhost:8000/user >/dev/null; then
     HEALTH_OK=true
     break
   fi
