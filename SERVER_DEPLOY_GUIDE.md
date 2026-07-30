@@ -26,7 +26,7 @@ bash deploy.sh
 2. 备份当前生产数据库。
 3. 从 GitHub 同步代码。
 4. 写入 systemd 的 `DATA_DIR` drop-in 配置并执行数据库轻量迁移。
-5. 重启服务，校验训练会话和消息数量没有减少。
+5. 重启服务，校验五类数据数量没有减少，并在最长约 30 秒内重试健康检查。
 
 也可以在服务器上手动执行：
 
@@ -107,3 +107,4 @@ sudo journalctl -u jingui -n 100 --no-pager
 - 生产数据目录为 `/var/lib/jingui/`。
 - API 密钥和管理密码只保存在服务器 `.env` 或安全的环境配置中，不得提交到 Git。
 - 不要绕过 `server_deploy.sh` 直接对生产目录执行清理式部署。
+- Git 同步失败时，脚本会从 GitHub Raw 更新核心代码及服务器上的安全部署脚本；这不会触碰 `/var/lib/jingui`。

@@ -16,6 +16,7 @@ PERSIST_DB="${PERSIST_DATA_DIR}/tcm.db"
 SERVICE_DROPIN_DIR="/etc/systemd/system/jingui.service.d"
 SERVICE_DROPIN="${SERVICE_DROPIN_DIR}/data-dir.conf"
 RAW_BASE="https://raw.githubusercontent.com/unicornpac/JinGui/main/backend"
+RAW_REPO_BASE="https://raw.githubusercontent.com/unicornpac/JinGui/main"
 SERVICE_STOPPED_FOR_MIGRATION=false
 MIGRATED_NEW_DB=false
 DROPIN_INSTALLED=false
@@ -29,6 +30,12 @@ FILES=(
   "app/routers/texts.py"
   "seed_texts.py"
   "static/study.html"
+)
+
+ROOT_FILES=(
+  "server_deploy.sh"
+  "jingui.service"
+  "SERVER_DEPLOY_GUIDE.md"
 )
 
 sqlite_backup() {
@@ -143,6 +150,11 @@ if ! ${SYNC_OK}; then
     echo "    -> ${file}"
     sudo wget -q -O "${dest}" "${RAW_BASE}/${file}"
   done
+  for file in "${ROOT_FILES[@]}"; do
+    dest="${REPO_DIR}/${file}"
+    echo "    -> ${file}"
+    sudo wget -q -O "${dest}" "${RAW_REPO_BASE}/${file}"
+  done
 fi
 
 # 3. 固定 systemd 的生产数据目录
@@ -174,8 +186,6 @@ finally:
 echo ""
 echo "[5/5] 重启并验证..."
 sudo systemctl restart jingui
-sleep 2
-sudo systemctl is-active --quiet jingui
 
 AFTER_COUNTS="$(db_counts "${PERSIST_DB}")"
 echo "  部署后记录数（会话/消息/学习/病案/条文）: ${AFTER_COUNTS}"
@@ -191,7 +201,24 @@ if [ "${after_sessions}" -lt "${before_sessions}" ] \
   exit 1
 fi
 
-curl -fsS http://localhost:8000/api/texts/distribution >/dev/null
+HEALTH_OK=false
+for attempt in $(seq 1 15); do
+  if sudo systemctl is-active --quiet jingui \
+    && curl -fsS --max-time 3 http://localhost:8000/api/texts/distribution >/dev/null; then
+    HEALTH_OK=true
+    break
+  fi
+  echo "  等待服务启动（${attempt}/15）..."
+  sleep 2
+done
+
+if ! ${HEALTH_OK}; then
+  echo "错误：服务在等待 30 秒后仍未通过健康检查。" >&2
+  sudo systemctl status jingui --no-pager -l || true
+  sudo journalctl -u jingui -n 50 --no-pager || true
+  exit 1
+fi
+
 SERVICE_STOPPED_FOR_MIGRATION=false
 
 echo ""
