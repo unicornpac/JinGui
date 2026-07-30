@@ -6,10 +6,8 @@ After=network.target
 Type=simple
 User=root
 WorkingDirectory=/root/JinGui/backend
-Environment=OPENAI_BASE_URL=https://api.deepseek.com
-Environment=OPENAI_API_KEY=sk-f188df309c89492d85098660abcaa277
-Environment=AI_MODEL=deepseek-chat
-Environment=ADMIN_PASSWORD=jingui2026
+EnvironmentFile=-/root/JinGui/backend/.env
+Environment=DATA_DIR=/var/lib/jingui
 ExecStart=/usr/local/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
 Restart=always
 RestartSec=5

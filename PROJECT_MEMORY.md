@@ -182,10 +182,10 @@ http://localhost:8000/docs     # API 文档
 
 ---
 
-## 当前状态（2026-07-25 更新）
+## 当前状态（2026-07-30 更新）
 
-- **部署**：阿里云 ECS `121.40.170.154:8000`，systemd 开机自启
-- **数据**：396条条文（伤寒论398条） + **9例训练病案**（初级3/中级3/高级3）
+- **部署**：阿里云轻量服务器 `39.106.218.131`，systemd 开机自启，80端口转发到8000；生产数据库独立存放于 `/var/lib/jingui`
+- **数据**：152条条文（《伤寒论》，分属8篇章）+ 《金匮》篇章框架就绪待导入 + **9例训练病案**（初级3/中级3/高级3）
 - **AI**：DeepSeek 官方 API，模型 `deepseek-chat`
 - **前端**：4个页面，管理端已加条文管理面板，study 页已分金匮/伤寒两组
 - **提示词**：纯患者角色，含人格系统+情绪分级（大幅拉长节奏）+贴吧老哥模式+输入内容感知+西医检查适配+医学常识约束
@@ -202,12 +202,13 @@ http://localhost:8000/docs     # API 文档
 
 ## 部署信息
 
-- **服务器**：阿里云 ECS，2核4G，Ubuntu 22.04
-- **公网 IP**：`121.40.170.154`
-- **端口**：8000（安全组已开放）
+- **服务器**：阿里云轻量服务器，Ubuntu 22.04
+- **公网 IP**：`39.106.218.131`
+- **端口**：80 → iptables 转发到 8000（安全组已开放80、8000）
 - **systemd 服务**：`/etc/systemd/system/jingui.service`（开机自启）
-- **⚠️ 服务器无 Git**，用 wget 从 GitHub Raw 拉取文件更新
-- **部署指南**：详见 `SERVER_DEPLOY_GUIDE.md`
+- **部署方式**：服务器已安装 Git，`cd /root/JinGui && sudo git pull && sudo systemctl restart jingui`
+- **一键部署脚本**：`server_deploy.sh`（优先 git pull，失败降级 wget）
+- **生产数据库**：`/var/lib/jingui/tcm.db`（仓库外持久化，部署前自动备份到 `/var/backups/jingui/`）
 - **Python 命令**：服务器用 `python3`，不是 `python`
 
 ## 关键配置
@@ -215,8 +216,9 @@ http://localhost:8000/docs     # API 文档
 `.env` 文件（本地）：
 ```
 OPENAI_BASE_URL=https://api.deepseek.com
-OPENAI_API_KEY=sk-aa2c5697a8214fcd909c6ed6e63f29bf
+OPENAI_API_KEY=请在服务器环境中配置
 AI_MODEL=deepseek-chat
+ADMIN_PASSWORD=请在服务器环境中配置
 ```
 
 服务器 systemd 环境变量同上。
@@ -243,6 +245,7 @@ AI_MODEL=deepseek-chat
 29. ✅ pytest-cov 覆盖率报告 + GitHub Actions CI 集成
 30. ✅ API 路由认证保护：13 个写端点全部加管理员密码验证
 31. ✅ 请求频率限制 + 文件上传分级管控（≤20MB/200MB + 密码分级）
+32. ✅ 生产数据库移出 Git 工作树，部署前自动备份并校验在线记录数
 
 ### 2026-07-25 会话记录
 
@@ -391,3 +394,21 @@ AI_MODEL=deepseek-chat
 
 - 服务器 `wget` 无写权限，需加 `sudo`：`sudo wget -O /root/JinGui/... https://raw...`
 - 已在 `SERVER_DEPLOY_GUIDE.md` 中标注（待更新）
+
+### 2026-07-30 会话记录
+
+**修复部署覆盖在线数据库**
+
+- 现象：切换到新服务器后，在线训练记录只剩 GitHub 数据库快照中的 4 条历史会话。
+- 根因：生产数据库位于 `backend/data/tcm.db`，同时被 Git 跟踪；`server_deploy.sh` 执行 `git reset --hard origin/main` 时会用仓库快照覆盖服务器运行库。
+- 修复：
+  - 生产数据库迁移到仓库外的 `/var/lib/jingui/tcm.db`。
+  - systemd 通过 `DATA_DIR=/var/lib/jingui` 固定使用持久化目录。
+  - 部署脚本在代码同步前使用 SQLite Online Backup API 创建一致性备份。
+  - 首次运行安全部署脚本时自动把旧位置数据库迁移到持久化目录。
+  - 首次迁移时短暂停止服务，避免复制过程中产生未迁移的新记录。
+  - 部署完成后比较会话、消息、学习记录、病案和条文数量，发现减少则部署失败并提示恢复。
+  - 本地 `deploy.sh` 改为上传并调用统一的服务器端安全部署脚本。
+- 备份位置：`/var/backups/jingui/tcm-YYYYMMDD-HHMMSS.db`。
+- 文档：重写 `SERVER_DEPLOY_GUIDE.md`，补充迁移、备份、恢复和运维检查流程。
+- 安全：从版本化的 `jingui.service` 和 `PROJECT_MEMORY.md` 中移除明文凭据，改为服务器环境配置。

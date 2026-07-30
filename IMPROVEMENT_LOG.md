@@ -45,6 +45,15 @@
 - **状态**：✅ 已完成（2026-07-25）
 - **实现**：`app/routers/documents.py` 新增 `MAX_UPLOAD_NORMAL=20MB` / `MAX_UPLOAD_HARD=200MB` 常量；上传端点增加 Content-Length 预检 + 分块写入时大小追踪 + 分级密码验证；超限时返回 413 状态码。
 
+### P0-4. 部署覆盖生产数据库
+
+- **问题**：生产 SQLite 数据库位于 Git 工作树内，且部署脚本执行 `git reset --hard origin/main`，在线训练记录会被仓库中的旧数据库快照覆盖。
+- **影响**：每次部署都可能永久丢失训练会话、消息和学习记录。
+- **位置**：`server_deploy.sh`、`deploy.sh`、`jingui.service`、`backend/data/tcm.db`
+- **解决方案**：生产数据库迁移到仓库外的 `/var/lib/jingui/tcm.db`；首次迁移短暂停止服务以避免写入竞态；systemd 固定设置 `DATA_DIR`；部署前通过 SQLite Online Backup API 备份；部署后比较会话、消息、学习记录、病案和条文数量，发现减少立即报错。
+- **状态**：✅ 已完成（2026-07-30）
+- **实现**：安全部署脚本首次运行自动迁移旧库，后续部署只操作持久化库；备份保存在 `/var/backups/jingui/`；本地部署入口统一调用服务器安全部署脚本。
+
 ---
 
 ### P1-1. 结构化日志 & 请求追踪
@@ -147,7 +156,8 @@
 - **影响**：数据丢失风险。
 - **位置**：运维层面
 - **建议方案**：每日 cron 任务 `cp data/tcm.db data/backups/tcm-$(date +%Y%m%d).db`，保留最近 7 天。
-- **状态**：🟢 待处理
+- **状态**：🟡 部分完成（2026-07-30）
+- **实现进度**：已增加每次部署前的一致性自动备份；每日定时备份和保留周期仍待配置。
 
 ### P3-2. 前端加载状态 & 错误边界
 
@@ -187,11 +197,11 @@
 
 | 优先级 | 总数 | 已完成 | 进行中 | 待处理 |
 |--------|------|--------|--------|--------|
-| P0     | 3    | 3      | 0      | 0      |
+| P0     | 4    | 4      | 0      | 0      |
 | P1     | 5    | 0      | 0      | 5      |
 | P2     | 5    | 0      | 0      | 5      |
 | P3     | 5    | 0      | 0      | 5      |
-| **合计** | **18** | **3** | **0** | **15** |
+| **合计** | **19** | **4** | **0** | **15** |
 
 ---
 
@@ -207,3 +217,4 @@
 | 2026-07-25 | P0-2 | 请求频率限制（自实现 SimpleRateLimiter） | `app/dependencies.py`、`app/routers/agent.py`、`analysis.py`、`documents.py` |
 | 2026-07-25 | P0-3 | 文件上传大小限制 + 分级密码（20MB/200MB） | `app/routers/documents.py` |
 | 2026-07-27 | — | **修复 AI 患者对正确诊断的识别反馈**：提示词从\"绝对不确认\"改为\"允许患者语言自然肯定\"，新增 `_build_progress_hint()` 根据后端进度动态注入行为指令（信任感流露→主动补充细节→完全配合），SAFETY_GUARD 新增\"进度感知与行为变化\"段落 | `app/services/prompts_config.py`、`app/services/agent_service.py` |
+| 2026-07-30 | P0-4 | 生产数据库移出 Git 工作树；部署前自动备份并校验在线记录数 | `server_deploy.sh`、`deploy.sh`、`jingui.service`、`SERVER_DEPLOY_GUIDE.md` |
