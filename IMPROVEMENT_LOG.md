@@ -219,3 +219,4 @@
 | 2026-07-27 | — | **修复 AI 患者对正确诊断的识别反馈**：提示词从\"绝对不确认\"改为\"允许患者语言自然肯定\"，新增 `_build_progress_hint()` 根据后端进度动态注入行为指令（信任感流露→主动补充细节→完全配合），SAFETY_GUARD 新增\"进度感知与行为变化\"段落 | `app/services/prompts_config.py`、`app/services/agent_service.py` |
 | 2026-07-30 | P0-4 | 生产数据库移出 Git 工作树；部署前自动备份并校验在线记录数 | `server_deploy.sh`、`deploy.sh`、`jingui.service`、`SERVER_DEPLOY_GUIDE.md` |
 | 2026-07-30 | P0-4 | 部署健康检查增加约 30 秒重试；Git 降级同步同时更新服务器安全脚本 | `server_deploy.sh`、`SERVER_DEPLOY_GUIDE.md` |
+| 2026-07-30 | P0-4 | 修复健康检查访问受保护 API 返回 401 的误报，改为检查公开 `/user` 页面 | `server_deploy.sh`、`SERVER_DEPLOY_GUIDE.md` |
