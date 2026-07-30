@@ -412,3 +412,5 @@ ADMIN_PASSWORD=请在服务器环境中配置
 - 备份位置：`/var/backups/jingui/tcm-YYYYMMDD-HHMMSS.db`。
 - 文档：重写 `SERVER_DEPLOY_GUIDE.md`，补充迁移、备份、恢复和运维检查流程。
 - 安全：从版本化的 `jingui.service` 和 `PROJECT_MEMORY.md` 中移除明文凭据，改为服务器环境配置。
+- 首次实际部署中 Uvicorn 启动超过原先固定等待的 2 秒，数据校验已通过但最后一次 `curl` 误报失败；已改为最长约 30 秒重试健康检查。
+- Git 同步失败进入 Raw 降级路径时，同时更新仓库中的 `server_deploy.sh`、`jingui.service` 和部署指南，避免服务器保留旧版不安全脚本。
