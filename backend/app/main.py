@@ -17,7 +17,7 @@ from fastapi import Depends, FastAPI, HTTPException
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from .database import init_db
-from .dependencies import verify_admin
+from .dependencies import verify_admin_page
 from .routers import texts, cases, analysis, documents, agent
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
@@ -89,7 +89,7 @@ async def startup_event():
 
 
 @app.get("/")
-async def root(_: str = Depends(verify_admin)):
+async def root(_: str = Depends(verify_admin_page)):
     """根路径（管理端，需密码）"""
     from fastapi.responses import FileResponse
     index_path = STATIC_DIR / "index.html"

@@ -148,16 +148,14 @@ const API = '/api';
 
 async function loadStats() {
   try {
-    const [texts, cases, sessions] = await Promise.all([
-      fetch(`${API}/texts?limit=1`).then(r=>r.json()),
-      fetch(`${API}/cases?limit=1`).then(r=>r.json()),
-      fetch(`${API}/agent/sessions?limit=200`).then(r=>r.json())
-    ]);
-    document.getElementById('qTexts').textContent = Array.isArray(texts) ? texts.length : '--';
-    document.getElementById('qCases').textContent = Array.isArray(cases) ? cases.length : '--';
-    document.getElementById('qSessions').textContent = Array.isArray(sessions) ? sessions.length : 0;
-    const scored = (Array.isArray(sessions)?sessions:[]).filter(s=>s.score&&s.score!=='未评分'&&!isNaN(parseFloat(s.score)));
-    document.getElementById('qAvg').textContent = scored.length ? Math.round(scored.reduce((a,b)=>a+parseFloat(b.score),0)/scored.length)+'分' : '--';
+    const resp = await fetch(`${API}/agent/public-stats`);
+    if (!resp.ok) throw new Error(`统计接口返回 ${resp.status}`);
+    const stats = await resp.json();
+    document.getElementById('qTexts').textContent = stats.text_count;
+    document.getElementById('qCases').textContent = stats.case_count;
+    document.getElementById('qSessions').textContent = stats.session_count;
+    document.getElementById('qAvg').textContent =
+      stats.average_score == null ? '--' : `${Math.round(stats.average_score)}分`;
   } catch(e) { console.error(e); }
 }
 

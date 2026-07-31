@@ -221,7 +221,10 @@ async def upload_document(
 
     # 1. 检查文件大小（优先从 Content-Length 获取）
     content_length = request.headers.get("content-length")
-    if content_length:
+    upload_size = getattr(file, "size", None)
+    if isinstance(upload_size, int):
+        file_size_hint = upload_size
+    elif content_length:
         try:
             file_size_hint = int(content_length)
         except ValueError:

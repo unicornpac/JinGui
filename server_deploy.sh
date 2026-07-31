@@ -23,13 +23,19 @@ DROPIN_INSTALLED=false
 
 FILES=(
   "app/database.py"
+  "app/dependencies.py"
+  "app/main.py"
   "app/models.py"
   "app/schemas.py"
   "app/services/parser.py"
   "app/services/text_verifier.py"
+  "app/routers/agent.py"
+  "app/routers/documents.py"
   "app/routers/texts.py"
   "seed_texts.py"
+  "static/index.html"
   "static/study.html"
+  "static/user.html"
 )
 
 ROOT_FILES=(
