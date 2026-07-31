@@ -221,3 +221,53 @@
 | 2026-07-30 | P0-4 | 部署健康检查增加约 30 秒重试；Git 降级同步同时更新服务器安全脚本 | `server_deploy.sh`、`SERVER_DEPLOY_GUIDE.md` |
 | 2026-07-30 | P0-4 | 修复健康检查访问受保护 API 返回 401 的误报，改为检查公开 `/user` 页面 | `server_deploy.sh`、`SERVER_DEPLOY_GUIDE.md` |
 | 2026-07-31 | P0-1 | 修复公开首页请求管理接口导致密码弹窗；分离页面/API认证；补齐公开统计及大文件上传交互 | `dependencies.py`、`main.py`、`agent.py`、`documents.py`、`user.html`、`index.html`、`test_api_routes.py` |
+
+---
+
+## 2026-07-31 开发日志：认证弹窗与上传交互修复
+
+### 问题现象
+
+- 用户进入公开首页 `/user` 时，浏览器有时会意外弹出管理端密码框。
+- 首页的条文和病案统计使用 `limit=1` 请求，显示的是返回数组长度，导致数量始终为 1。
+- 大于 20MB 的文件需要 `X-Upload-Password`，但管理端页面没有询问密码，也没有发送该请求头。
+- 上传接口返回 401 等错误时，前端可能把失败结果显示为“上传成功”。
+
+### 根因
+
+- `/user` 加载时自动请求受保护的 `/api/agent/sessions`。
+- 管理 API 与管理端页面共用同一个 `HTTPBasic` challenge；API 返回的
+  `WWW-Authenticate: Basic` 会触发浏览器原生密码框。
+- 前端上传函数只发送 `FormData`，没有实现大文件密码交互，也没有先检查 HTTP 状态。
+
+### 修改内容
+
+1. **分离认证行为**
+   - 管理端页面 `/` 使用 `verify_admin_page`，保留浏览器 Basic 登录框。
+   - 管理 API 使用 `verify_admin`；未认证时返回普通 JSON 401，不再发送 Basic challenge。
+
+2. **新增公开聚合统计**
+   - 新增 `GET /api/agent/public-stats`。
+   - 只返回条文数、病案数、训练次数和平均分，不暴露学生或会话明细。
+   - `/user` 改用该接口，消除意外密码弹窗并修复统计数量错误。
+
+3. **完善上传交互**
+   - 保留管理端认证和超过 20MB 后再次验证同一密码的现有规则。
+   - 前端在文件超过 20MB 时主动询问密码，并通过 `X-Upload-Password` 发送。
+   - 后端优先使用上传文件的真实大小进行分级判断，避免 multipart 请求体开销影响阈值。
+   - 前端检查 HTTP 状态并显示后端 `detail`，不再把上传失败误报为成功。
+
+4. **部署兼容**
+   - 将本次涉及的认证、路由、上传和前端文件加入 `server_deploy.sh` 的 GitHub Raw 降级同步清单。
+
+### 验证结果
+
+- 管理端 `/` 未认证：401，包含 `WWW-Authenticate: Basic`。
+- 管理 API 未认证：JSON 401，不包含 `WWW-Authenticate`。
+- 公开统计接口：无需认证并正确返回聚合数据。
+- Python 编译、Shell 语法和前端内联 JavaScript 语法检查通过。
+- 自动化测试由 108 项增加至 **111 项，全部通过**。
+
+### 提交
+
+- `f7b1a88 fix: 避免公开页面触发管理密码弹窗`
