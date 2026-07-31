@@ -199,3 +199,11 @@ class SessionEvaluateResponse(BaseModel):
     case_title: Optional[str] = Field(None, description="病案标题（训练结束后揭晓）")
     case_correct_answer: Optional[str] = Field(None, description="参考答案（训练结束后揭晓）")
     related_texts: Optional[List[dict]] = Field(None, description="相关经典条文（含出处和原文）")
+
+
+class PublicStatsResponse(BaseModel):
+    """公开首页使用的聚合统计，不包含学生或会话明细。"""
+    text_count: int
+    case_count: int
+    session_count: int
+    average_score: Optional[float] = None

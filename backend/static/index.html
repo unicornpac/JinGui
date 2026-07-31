@@ -495,12 +495,26 @@ function escHtml(s){if(!s)return'';const d=document.createElement('div');d.textC
 // === 文档上传 ===
 async function uploadFile(inp) {
   const f = inp.files[0]; if (!f) return;
+  const normalLimit = 20 * 1024 * 1024;
+  const headers = {};
+  if (f.size > normalLimit) {
+    const password = prompt(`文件大小为 ${(f.size/1024/1024).toFixed(1)}MB，超过20MB，请输入上传密码：`);
+    if (password === null) { inp.value = ''; return; }
+    headers['X-Upload-Password'] = password;
+  }
   const fd = new FormData(); fd.append('file', f);
   try {
-    const r = await (await fetch(`${API}/documents/upload`,{method:'POST',body:fd})).json();
-    toast(r.message||'上传成功', r.success?'success':'error');
-    inp.value = ''; loadDocs();
-  } catch(e) { toast('上传失败','error'); }
+    const resp = await fetch(`${API}/documents/upload`,{method:'POST',headers,body:fd});
+    let result = {};
+    try { result = await resp.json(); } catch (_) {}
+    if (!resp.ok) throw new Error(result.detail || `上传失败（HTTP ${resp.status}）`);
+    toast(result.message||'上传成功', result.success===false?'error':'success');
+    loadDocs();
+  } catch(e) {
+    toast(e.message||'上传失败','error');
+  } finally {
+    inp.value = '';
+  }
 }
 
 async function loadDocs() {

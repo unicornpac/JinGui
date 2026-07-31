@@ -6,16 +6,32 @@ import secrets
 import time
 import threading
 from collections import defaultdict
+from typing import Optional
 from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 
-security = HTTPBasic()
+api_security = HTTPBasic(auto_error=False)
+page_security = HTTPBasic()
 
 
-def verify_admin(credentials: HTTPBasicCredentials = Depends(security)):
-    """验证管理员密码"""
+def _password_is_valid(credentials: Optional[HTTPBasicCredentials]) -> bool:
+    """以恒定时间比较管理员密码。"""
+    if credentials is None:
+        return False
     correct = os.environ.get("ADMIN_PASSWORD", "jingui2026")
-    if not secrets.compare_digest(credentials.password.encode(), correct.encode()):
+    return secrets.compare_digest(credentials.password.encode(), correct.encode())
+
+
+def verify_admin(credentials: Optional[HTTPBasicCredentials] = Depends(api_security)):
+    """验证管理 API；失败时只返回 JSON，不触发浏览器原生密码框。"""
+    if not _password_is_valid(credentials):
+        raise HTTPException(status_code=401, detail="需要管理员认证")
+    return credentials.username
+
+
+def verify_admin_page(credentials: HTTPBasicCredentials = Depends(page_security)):
+    """验证管理端页面；失败时发出 Basic challenge，让浏览器显示登录框。"""
+    if not _password_is_valid(credentials):
         raise HTTPException(
             status_code=401,
             detail="密码错误",

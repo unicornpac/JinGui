@@ -3,6 +3,9 @@ API 路由集成测试 —— 测试 HTTP 层行为，agent/DB 逻辑用 mock �
 """
 import pytest
 from unittest.mock import patch, MagicMock
+from sqlalchemy.orm import sessionmaker
+
+from app.models import ClassicText, MedicalCase, TrainingSession
 
 
 # ==================== Agent Session 生命周期 ====================
@@ -86,6 +89,59 @@ class TestPages:
         """管理端首页需要密码认证"""
         resp = client.get("/")
         assert resp.status_code == 401
+        assert resp.headers.get("www-authenticate") == "Basic"
+
+
+# ==================== 认证边界与公开统计 ====================
+
+class TestAuthenticationBoundaries:
+    """只有管理端页面触发浏览器 Basic 登录框。"""
+
+    def test_admin_api_401_has_no_basic_challenge(self, client):
+        """后台 API 未认证时返回 JSON 401，但不触发浏览器原生密码框。"""
+        resp = client.get("/api/agent/sessions")
+        assert resp.status_code == 401
+        assert "www-authenticate" not in resp.headers
+        assert resp.json()["detail"] == "需要管理员认证"
+
+    def test_admin_api_accepts_basic_credentials(self, client):
+        resp = client.get(
+            "/api/agent/sessions",
+            auth=("admin", "jingui2026"),
+        )
+        assert resp.status_code == 200
+
+
+class TestPublicStats:
+    """公开首页只读取聚合统计，不请求受保护的会话明细。"""
+
+    def test_public_stats_returns_aggregates(self, client, engine):
+        Session = sessionmaker(bind=engine)
+        db = Session()
+        try:
+            db.add(ClassicText(source_book="《伤寒论》", content="太阳之为病"))
+            db.add(MedicalCase(
+                title="测试病案",
+                content="测试病案内容",
+                difficulty_level="初级",
+            ))
+            db.add_all([
+                TrainingSession(difficulty_level="初级", score="80分"),
+                TrainingSession(difficulty_level="中级", score="90"),
+                TrainingSession(difficulty_level="高级", score="未评分"),
+            ])
+            db.commit()
+        finally:
+            db.close()
+
+        resp = client.get("/api/agent/public-stats")
+        assert resp.status_code == 200
+        assert resp.json() == {
+            "text_count": 1,
+            "case_count": 1,
+            "session_count": 3,
+            "average_score": 85.0,
+        }
 
 
 # ==================== 全局错误处理 ====================

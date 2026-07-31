@@ -220,3 +220,4 @@
 | 2026-07-30 | P0-4 | 生产数据库移出 Git 工作树；部署前自动备份并校验在线记录数 | `server_deploy.sh`、`deploy.sh`、`jingui.service`、`SERVER_DEPLOY_GUIDE.md` |
 | 2026-07-30 | P0-4 | 部署健康检查增加约 30 秒重试；Git 降级同步同时更新服务器安全脚本 | `server_deploy.sh`、`SERVER_DEPLOY_GUIDE.md` |
 | 2026-07-30 | P0-4 | 修复健康检查访问受保护 API 返回 401 的误报，改为检查公开 `/user` 页面 | `server_deploy.sh`、`SERVER_DEPLOY_GUIDE.md` |
+| 2026-07-31 | P0-1 | 修复公开首页请求管理接口导致密码弹窗；分离页面/API认证；补齐公开统计及大文件上传交互 | `dependencies.py`、`main.py`、`agent.py`、`documents.py`、`user.html`、`index.html`、`test_api_routes.py` |

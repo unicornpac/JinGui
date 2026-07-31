@@ -13,16 +13,42 @@ from sqlalchemy.orm import Session
 from typing import List
 from ..database import get_db
 from ..dependencies import verify_admin, limit_agent_start, limit_agent_message
-from ..models import TrainingSession, SessionMessage, MedicalCase
+from ..models import TrainingSession, SessionMessage, MedicalCase, ClassicText
 from ..schemas import (
     SessionStartRequest, SessionStartResponse,
     SessionMessageRequest, SessionMessageResponse,
     SessionDetailResponse, SessionEvaluateResponse,
-    MessageResponse
+    MessageResponse, PublicStatsResponse
 )
 from ..services.agent_service import get_agent
 
 router = APIRouter()
+
+
+@router.get("/public-stats", response_model=PublicStatsResponse, summary="公开聚合统计")
+async def get_public_stats(db: Session = Depends(get_db)):
+    """首页统计数据；只返回总数和平均分，不暴露训练会话明细。"""
+    import re
+
+    score_values = db.query(TrainingSession.score).filter(
+        TrainingSession.score.isnot(None)
+    ).all()
+    numeric_scores = []
+    for (score,) in score_values:
+        match = re.match(r"^\s*(\d+(?:\.\d+)?)", str(score))
+        if match:
+            numeric_scores.append(float(match.group(1)))
+
+    average_score = (
+        round(sum(numeric_scores) / len(numeric_scores), 1)
+        if numeric_scores else None
+    )
+    return PublicStatsResponse(
+        text_count=db.query(ClassicText).count(),
+        case_count=db.query(MedicalCase).count(),
+        session_count=db.query(TrainingSession).count(),
+        average_score=average_score,
+    )
 
 
 @router.post("/session/start", response_model=SessionStartResponse, summary="开始训练")
