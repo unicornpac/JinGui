@@ -496,15 +496,17 @@ function escHtml(s){if(!s)return'';const d=document.createElement('div');d.textC
 async function uploadFile(inp) {
   const f = inp.files[0]; if (!f) return;
   const normalLimit = 20 * 1024 * 1024;
-  const headers = {};
+  const fd = new FormData(); fd.append('file', f);
+  const opts = { method: 'POST', body: fd };
   if (f.size > normalLimit) {
     const password = prompt(`文件大小为 ${(f.size/1024/1024).toFixed(1)}MB，超过20MB，请输入上传密码：`);
     if (password === null) { inp.value = ''; return; }
-    headers['X-Upload-Password'] = password;
+    const h = new Headers();
+    h.set('X-Upload-Password', password);
+    opts.headers = h;
   }
-  const fd = new FormData(); fd.append('file', f);
   try {
-    const resp = await fetch(`${API}/documents/upload`,{method:'POST',headers,body:fd});
+    const resp = await fetch(`${API}/documents/upload`, opts);
     let result = {};
     try { result = await resp.json(); } catch (_) {}
     if (!resp.ok) throw new Error(result.detail || `上传失败（HTTP ${resp.status}）`);
