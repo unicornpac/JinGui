@@ -55,7 +55,8 @@ backend/
 │   ├── index.html             # 教师管理端
 │   ├── user.html              # 首页导航
 │   ├── train.html             # 学生训练端（核心前端）
-│   └── study.html             # 条文学习页（按病证分类）
+│   ├── study.html             # 条文学习页（按病证分类）
+│   └── showcase.html          # Showcase 展示页（Awwwards 级设计）
 ├── tests/
 │   ├── conftest.py            # pytest 公共夹具
 │   ├── test_jailbreak.py      # 越狱检测测试
@@ -147,6 +148,7 @@ backend/
 | `/user` | 首页 | 数据概览、条文学习入口、训练入口 |
 | `/train` | 学生训练端 | 难度选择、聊天交互、进度追踪、评价+病案揭晓 |
 | `/study` | 条文学习 | 8大病证分类、关联条文展示、AI解读 |
+| `/showcase` | Showcase 展示 | Awwwards 级设计：Canvas 水墨粒子、弹簧动效、破格排版 |
 
 ---
 
@@ -163,6 +165,7 @@ backend/
 9. ✅ 训练不强制结束（学生主动评价）
 10. ✅ 管理端手动录入条文
 11. ✅ 提示词可编辑（prompts_config.py）
+12. ✅ Showcase 展示页：Canvas 水墨粒子 + 弹簧动效 + Lucide 图标（2026-07-31）
 
 ---
 
@@ -177,17 +180,19 @@ http://localhost:8000          # 教师管理端
 http://localhost:8000/user     # 首页
 http://localhost:8000/train    # 学生训练端
 http://localhost:8000/study    # 条文学习
+http://localhost:8000/showcase # Showcase 展示页
 http://localhost:8000/docs     # API 文档
 ```
 
 ---
 
-## 当前状态（2026-07-30 更新）
+## 当前状态（2026-07-31 更新）
 
 - **部署**：阿里云轻量服务器 `39.106.218.131`，systemd 开机自启，80端口转发到8000；生产数据库独立存放于 `/var/lib/jingui`
 - **数据**：152条条文（《伤寒论》，分属8篇章）+ 《金匮》篇章框架就绪待导入 + **9例训练病案**（初级3/中级3/高级3）
 - **AI**：DeepSeek 官方 API，模型 `deepseek-chat`
-- **前端**：4个页面，管理端已加条文管理面板，study 页已分金匮/伤寒两组
+- **前端**：5个页面（含新增 Showcase 展示页），管理端已加条文管理面板，study 页已分金匮/伤寒两组
+- **Showcase**：Awwwards 级设计：Canvas 水墨粒子背景、弹簧物理文字动效、破格排版、磁性光标交互、全站 Lucide 图标（`/showcase`）
 - **提示词**：纯患者角色，含人格系统+情绪分级（大幅拉长节奏）+贴吧老哥模式+输入内容感知+西医检查适配+医学常识约束
 - **评价**：训练结束后自动匹配并展示相关《金匮要略》/《伤寒论》原条文
 - **测试**：**108 个自动化测试**（pytest），覆盖越狱检测、纯函数、进度分析、API 路由、错误处理
@@ -429,3 +434,40 @@ ADMIN_PASSWORD=请在服务器环境中配置
 - 保留大文件重复验证逻辑；前端在文件超过 20MB 时主动询问密码并发送 `X-Upload-Password`。
 - 上传失败现在展示后端真实错误，不再把 401 等失败误报为“上传成功”。
 - 新增公开统计及认证边界回归测试。
+
+**新增 Showcase 展示页**
+
+- 新增 `backend/static/showcase.html`（~930 行），Awwwards / FWA 水准的展示型页面。
+- 设计语言：墨韵·金石 — 深炭黑底色 + 金铜点缀 + 朱砂红印章。
+- Canvas 2D 水墨粒子系统（60 个有机漂移粒子），模拟墨滴扩散效果。
+- Hero 标题"病脉证并治"逐字弹簧物理动效入场（`cubic-bezier(.1,.8,.3,1)`）。
+- 破格排版：`clamp(48px, 8vw, 110px)` 大字 + `1.3fr 0.7fr 1fr` 非对称 broken grid。
+- 磁性光标 Aura 跟随 + 磁吸元素收缩 + CTA 按钮背景滑入反转。
+- 全站 Lucide 图标（scroll-text / brain / database / bot / zap / sparkles / award），零 Emoji。
+- 滚动驱动 Intersection Observer 渐进揭示 + easeOutExpo 数字计数动画。
+- 实时从 `/api/agent/public-stats` 拉取训练数据。
+- 路由：`GET /showcase` → `app/main.py` 新增端点。
+
+### 2026-08-01 会话记录
+
+**服务器故障恢复**
+
+- 现象：阿里云 `39.106.218.131` 无法访问，ping 通但端口 80/8000 拒绝连接。
+- 根因：服务器上 `database.py` 为空文件（代码未同步），导致 `init_db` 导入失败，uvicorn 启动退出（status=1/FAILURE）。
+- 修复：运行 `server_deploy.sh` → Git pull 同步最新代码 → 服务恢复正常。
+- 数据完好：部署前后记录数一致（会话4/消息30/学习50/病案9/条文152）。
+
+**修复文档上传功能**
+
+- 根因：前端 `index.html` 中 `uploadFile()` 对 FormData 请求始终传入 `headers: {}`（空对象），阻止浏览器自动设置 `Content-Type: multipart/form-data; boundary=...` 和附加 `Authorization` 认证头，导致后端无法解析请求且返回 401。
+- 修复：文件 ≤20MB 时不传 `headers` 参数；>20MB 时使用 `new Headers()` 对象仅设置 `X-Upload-Password`，让浏览器自动处理其他头。
+- 提交：`97fdbcd` → 推送至 GitHub → 服务器 `server_deploy.sh` 同步。
+
+**条文模块全面梳理**
+
+- 数据结构：`classic_texts` 表的书→篇章→子篇→条文编号四级结构，辅以 `chapter_meta` 表存储标准篇章元数据。
+- API 端点：11 个（公开 3 + 认证 8），支持 CRUD、篇章树、分布统计、互联网校验。
+- 数据来源：seed_texts.py 批量导入 / 管理端手动录入 / 文档上传自动解析。
+- 前端入口：`study.html`（按病证学习 / 按篇章浏览 / 全文搜索 三个视图）+ `index.html`（管理端表格 CRUD）。
+- 互联网校验：`TextVerifier` 调用 LLM 逐条判断条文篇章归属和编号是否正确，支持自动修正。
+- 当前数据：152 条《伤寒论》条文（10篇章分层），《金匮要略》25篇框架就绪待导入。
