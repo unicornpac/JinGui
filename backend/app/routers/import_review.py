@@ -280,3 +280,40 @@ async def reject_batch(
     )
     db.commit()
     return {"message": "批次已驳回", "success": True}
+
+
+@router.put("/batches/{batch_id}/edit/{staging_id}", summary="编辑暂存条文")
+async def edit_staging(
+    batch_id: str,
+    staging_id: int,
+    content: str = Query(None, description="规范正文"),
+    raw_content: str = Query(None, description="原始文本"),
+    article_number: int = Query(None, description="条号"),
+    chapter: str = Query(None, description="篇章名"),
+    db: Session = Depends(get_db),
+    _admin: str = Depends(verify_admin),
+):
+    """编辑暂存区单条条文的内容、条号或章节"""
+    item = db.query(ImportStaging).filter(
+        ImportStaging.id == staging_id,
+        ImportStaging.batch_id == batch_id,
+    ).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="暂存记录不存在")
+
+    changed = []
+    if content is not None:
+        item.content = content
+        changed.append("正文")
+    if raw_content is not None:
+        item.raw_content = raw_content
+        changed.append("原始文本")
+    if article_number is not None:
+        item.article_number = article_number
+        changed.append("条号")
+    if chapter is not None:
+        item.chapter = chapter
+        changed.append("章节")
+
+    db.commit()
+    return {"message": f"已更新{'、'.join(changed)}", "success": True}
