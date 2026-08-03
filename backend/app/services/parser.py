@@ -453,29 +453,30 @@ class DocumentParser:
         return self._extract_legacy(content, filename, source_book)
 
     def _extract_legacy(self, content: str, filename: str, source_book: str) -> Dict[str, any]:
-        """旧版兼容提取（用于无段落信息的纯文本/PFD）"""
+        """旧版兼容提取（用于无段落信息的纯文本/PDF）"""
         texts_raw = []
-        cases_raw = []
         seen_texts = set()
 
-        # 尝试句末条号模式（全文级别）
-        # 按 （数字）\n 分割
-        parts = re.split(r'(?<=[）)]\d{1,3}[）)])\s*\n', content)
-        if len(parts) < 5:
-            # 回退到旧策略
+        # 找所有句末 （数字） 的位置，按位置切割
+        nums_positions = []
+        for m in re.finditer(r'[）)](\d{1,3})[）)]', content):
+            nums_positions.append((m.end(), int(m.group(1))))
+
+        if len(nums_positions) < 5:
             return self._extract_fallback(content, source_book)
 
-        for part in parts:
-            t = part.strip()
-            if not t or len(t) < 15:
+        prev_end = 0
+        for end_pos, num in nums_positions:
+            segment = content[prev_end:end_pos].strip()
+            prev_end = end_pos
+            if len(segment) < 15:
                 continue
-            num = _extract_sentence_end_number(t)
-            cleaned = _clean_display_content(t)
+            cleaned = _clean_display_content(segment)
             if cleaned and cleaned not in seen_texts:
                 seen_texts.add(cleaned)
                 texts_raw.append({
                     "article_number": num,
-                    "raw_content": t,
+                    "raw_content": segment,
                     "content": cleaned,
                     "layout_marker": None,
                     "source_book": source_book,
@@ -484,7 +485,7 @@ class DocumentParser:
                     "source_offset": None,
                 })
 
-        return {"texts": texts_raw, "cases": cases_raw}
+        return {"texts": texts_raw, "cases": []}
 
     def _extract_fallback(self, content: str, source_book: str) -> Dict[str, any]:
         """最终的兜底策略"""
