@@ -31,8 +31,12 @@ bash deploy.sh
 也可以在服务器上手动执行：
 
 ```bash
+# root 用户或能 cd 进/root 的用户
 cd /root/JinGui
 sudo bash server_deploy.sh
+
+# 非 root 用户（如 admin），不能 cd /root，直接用绝对路径
+sudo bash /root/JinGui/server_deploy.sh
 ```
 
 ## 首次部署检查
