@@ -58,6 +58,9 @@ body { font-family: -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif;
 
 table { width:100%; border-collapse:collapse; font-size:14px; }
 th { text-align:left; padding:10px 12px; border-bottom:2px solid var(--border); color:#5c3d2e; font-weight:600; }
+th.sortable { cursor:pointer; user-select:none; }
+th.sortable:hover { color:var(--primary); }
+th.sortable span { font-size:10px; margin-left:2px; }
 td { padding:10px 12px; border-bottom:1px solid #f0e8d8; }
 tr:hover td { background:var(--hover); }
 .badge { display:inline-block; padding:3px 10px; border-radius:12px; font-size:12px; font-weight:600; }
@@ -184,8 +187,8 @@ tr:hover td { background:var(--hover); }
         <button class="btn btn-primary" onclick="loadTexts()">🔄 刷新</button>
         <button class="btn btn-del" onclick="batchDeleteTexts()" style="margin-left:auto;">🗑 批量删除选中</button>
       </div>
-      <table><thead><tr><th><input type="checkbox" onclick="toggleAllTexts(this)" title="全选"></th><th>ID</th><th>来源</th><th>章节</th><th>条文内容</th><th>关键词</th><th>操作</th></tr></thead>
-      <tbody id="textTbody"><tr><td colspan="7" style="text-align:center;color:var(--muted);padding:30px;">加载中…</td></tr></tbody></table>
+      <table><thead><tr><th><input type="checkbox" onclick="toggleAllTexts(this)" title="全选"></th><th class="sortable" onclick="sortTexts('id')">ID <span id="sIconId"></span></th><th class="sortable" onclick="sortTexts('source_book')">来源 <span id="sIconSource"></span></th><th class="sortable" onclick="sortTexts('chapter')">章节 <span id="sIconChapter"></span></th><th class="sortable" onclick="sortTexts('article_number')">条号 <span id="sIconNum"></span></th><th>条文内容</th><th>关键词</th><th>操作</th></tr></thead>
+      <tbody id="textTbody"><tr><td colspan="8" style="text-align:center;color:var(--muted);padding:30px;">加载中…</td></tr></tbody></table>
     </div>
   </div>
 
@@ -461,26 +464,64 @@ async function createText() {
   } catch(e) { toast('保存失败: '+e.message,'error'); }
 }
 
+let textSortField = 'id';
+let textSortAsc = true;
+
+function renderTexts(data) {
+  const tbody = document.getElementById('textTbody');
+  if (!data.length) { tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:30px;">暂无条文</td></tr>'; return; }
+  tbody.innerHTML = data.map(t => `
+    <tr>
+      <td><input type="checkbox" class="text-cb" value="${t.id}"></td>
+      <td>${t.id}</td><td>${escapeHtml(t.source_book||'--')}</td>
+      <td>${escapeHtml((t.chapter||'').substring(0,20))}</td>
+      <td>${t.article_number||''}</td>
+      <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml((t.content||'').substring(0,80))}</td>
+      <td>${escapeHtml((t.keywords||'').substring(0,20))}</td>
+      <td>
+        <button class="btn btn-view btn-sm" onclick="editText(${t.id})">编辑</button>
+        <button class="btn btn-del btn-sm" onclick="deleteText(${t.id})">删除</button>
+      </td>
+    </tr>`).join('');
+}
+
+function sortTexts(field) {
+  if (textSortField === field) {
+    textSortAsc = !textSortAsc;
+  } else {
+    textSortField = field;
+    textSortAsc = true;
+  }
+  // Update sort icons
+  ['Id','Source','Chapter','Num'].forEach(k => {
+    document.getElementById('sIcon'+k).textContent = '';
+  });
+  const iconMap = {id:'Id',source_book:'Source',chapter:'Chapter',article_number:'Num'};
+  const iconEl = document.getElementById('sIcon' + iconMap[field]);
+  if (iconEl) iconEl.textContent = textSortAsc ? '▲' : '▼';
+
+  const sorted = [...textDataCache].sort((a,b) => {
+    let va = a[field], vb = b[field];
+    if (va == null) va = '';
+    if (vb == null) vb = '';
+    if (typeof va === 'number' && typeof vb === 'number') return textSortAsc ? va - vb : vb - va;
+    va = String(va); vb = String(vb);
+    return textSortAsc ? va.localeCompare(vb) : vb.localeCompare(va);
+  });
+  renderTexts(sorted);
+}
+
+let textDataCache = [];
 async function loadTexts() {
   const src = document.getElementById('tfSource').value;
   try {
     const data = await (await fetch(`${API}/texts/?limit=2000`)).json();
-    const filtered = src ? data.filter(t => t.source_book === src) : data;
-    const tbody = document.getElementById('textTbody');
-    if (!filtered.length) { tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:30px;">暂无条文</td></tr>'; return; }
-    tbody.innerHTML = filtered.map(t => `
-      <tr>
-        <td><input type="checkbox" class="text-cb" value="${t.id}"></td>
-        <td>${t.id}</td><td>${escHtml(t.source_book||'--')}</td>
-        <td>${escHtml((t.chapter||'').substring(0,20))}</td>
-        <td style="max-width:350px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHtml((t.content||'').substring(0,80))}</td>
-        <td>${escHtml((t.keywords||'').substring(0,20))}</td>
-        <td>
-          <button class="btn btn-view btn-sm" onclick="editText(${t.id})">编辑</button>
-          <button class="btn btn-del btn-sm" onclick="deleteText(${t.id})">删除</button>
-        </td>
-      </tr>`).join('');
-  } catch(e) { document.getElementById('textTbody').innerHTML = '<tr><td colspan="7" style="text-align:center;color:#c0392b;padding:30px;">加载失败</td></tr>'; }
+    textDataCache = src ? data.filter(t => t.source_book === src) : data;
+    // Reset sort
+    textSortField = 'id'; textSortAsc = true;
+    ['Id','Source','Chapter','Num'].forEach(k => document.getElementById('sIcon'+k).textContent = '');
+    renderTexts(textDataCache);
+  } catch(e) { document.getElementById('textTbody').innerHTML = '<tr><td colspan="8" style="text-align:center;color:#c0392b;padding:30px;">加载失败</td></tr>'; }
 }
 
 async function editText(id) {
