@@ -35,8 +35,23 @@ SOURCE_BOOK_KEYWORDS = {
 # ── 罗马数字映射（Ⅰ-Ⅹ）──
 _ROMAN_MAP = dict(zip("ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ", range(1, 11)))
 
-# 句末条号模式：匹配末尾的 （数字） 或 （中文数字）
-_SENTENCE_END_NUM_RE = re.compile(r'[（(](\d{1,3})[）)]\s*$')
+# 句末条号模式：匹配末尾的 （数字）或（中文数字）
+_SENTENCE_END_NUM_RE = re.compile(r'[（(](\d{1,3}|[一二三四五六七八九十百廿卅]+)[）)]\s*$')
+
+# 中文数字 → 整数
+_CN_NUM_MAP = {
+    '一': 1, '二': 2, '三': 3, '四': 4, '五': 5,
+    '六': 6, '七': 7, '八': 8, '九': 9, '十': 10,
+    '十一': 11, '十二': 12, '十三': 13, '十四': 14, '十五': 15,
+    '十六': 16, '十七': 17, '十八': 18, '十九': 19, '二十': 20,
+    '廿': 20, '卅': 30, '百': 100,
+}
+
+# 金匮要略内部的子标题（非章节级别，仅作分组提示）
+_JINGUI_SUBHEADERS = {'治未病', '诊法', '疾病分类', '治则', '证治', '方', '禁忌', '杂治'}
+_JINGUI_SUBHEADER_PAT = re.compile(
+    r'^(治未病|诊法|疾病分类[^\\n]{0,10}|治则|证治[^\\n]{0,10}|杂疗方|禽兽鱼虫|果实菜谷)$'
+)
 
 # 罗马数字开头的版式标记
 _LAYOUT_MARKER_RE = re.compile(r'^[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]\s*')
@@ -69,10 +84,23 @@ def _strip_layout_marker(text: str) -> Tuple[str, Optional[str]]:
 
 
 def _extract_sentence_end_number(text: str) -> Optional[int]:
-    """从句末提取条号 （N），返回整数条号或 None"""
+    """从句末提取条号 （N）或（中文数字），返回整数条号或 None"""
     m = _SENTENCE_END_NUM_RE.search(text.rstrip())
     if m:
-        return int(m.group(1))
+        val = m.group(1)
+        if val.isdigit():
+            return int(val)
+        # 中文数字
+        if val in _CN_NUM_MAP:
+            return _CN_NUM_MAP[val]
+        # 复合中文数字如 "二十一" → 21
+        total = 0
+        for ch in val:
+            if ch in _CN_NUM_MAP:
+                total += _CN_NUM_MAP[ch]
+            elif ch == '十':
+                total += 10 if total == 0 else 0  # approximate
+        return total if total > 0 else None
     return None
 
 
@@ -172,6 +200,14 @@ def _split_by_sentence_end_number(
 
     current_chapter = None
     current_section = None
+    pending = []  # 无条号的导引段落，归属到下一条
+
+    def _article_complete(buf):
+        """缓冲区中的条文是否已完整（最后一段带条号）"""
+        if not buf or not buf.get("raw_parts"):
+            return False
+        last = buf["raw_parts"][-1]
+        return _extract_sentence_end_number(last) is not None
 
     for para_text, para_offset in paragraphs:
         text = para_text.strip()
@@ -180,18 +216,18 @@ def _split_by_sentence_end_number(
 
         # ── 章节标题 → 更新上下文 ──
         if _is_chapter_header(text):
-            # 先结束当前累积的条文
             _finish_article()
+            pending.clear()
             current_chapter, current_section = _parse_chapter(text)
             continue
 
         # ── 标题行 / 元数据 → 跳过 ──
-        # 首行为书名+统计
         if "原文" in text and "条" in text and "整理" in text:
             continue
-        # 只有罗马数字的单行（纯版式标记）
         stripped, _ = _strip_layout_marker(text)
         if len(stripped) < 4 and all(ch in "ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ \t" for ch in text):
+            continue
+        if _JINGUI_SUBHEADER_PAT.match(text):
             continue
 
         # ── 提取句末条号 ──
@@ -209,24 +245,45 @@ def _split_by_sentence_end_number(
             # 不同条号 → 结束前一条
             _finish_article()
 
-            # 开始新条
+            # 开始新条：如果 pending 中有导引段落，prepend
+            parts = pending + [text] if pending else [text]
+            pending.clear()
             _, marker = _strip_layout_marker(text)
             buffer = {
                 "article_number": article_num,
-                "raw_parts": [text],
+                "raw_parts": parts,
                 "markers": [marker] if marker else [],
                 "chapter": current_chapter,
                 "section": current_section,
                 "source_offset": para_offset,
             }
         else:
-            # 无条号文本：如果缓冲区有内容，可能是续文（如跨页段落）
+            # 无条号文本
             if buffer:
-                buffer["raw_parts"].append(text)
-            # 否则忽略
+                if _article_complete(buffer):
+                    # 当前条文已完整，新段落是下一条的导引
+                    pending.append(text)
+                else:
+                    # 当前条文未完整（没有末尾条号），视为续文
+                    buffer["raw_parts"].append(text)
+            else:
+                # 无缓冲区，累积到 pending
+                pending.append(text)
 
     # 处理最后一条
     _finish_article()
+
+    # 如果还有 pending 文本没有归属，作为独立未编号条目
+    if pending:
+        articles.append({
+            "article_number": None,
+            "raw_content": "\n".join(pending),
+            "content": _clean_display_content("\n".join(pending)),
+            "layout_marker": None,
+            "chapter": current_chapter,
+            "section": current_section,
+            "source_offset": -1,
+        })
 
     return articles
 
@@ -457,10 +514,12 @@ class DocumentParser:
         texts_raw = []
         seen_texts = set()
 
-        # 找所有句末 （数字） 的位置，按位置切割
+        # 找所有句末 （数字/中文数字） 的位置，按位置切割
         nums_positions = []
-        for m in re.finditer(r'[）)](\d{1,3})[）)]', content):
-            nums_positions.append((m.end(), int(m.group(1))))
+        for m in re.finditer(r'[）)](\d{1,3}|[一二三四五六七八九十百廿卅]+)[）)]', content):
+            num_str = m.group(1)
+            num = int(num_str) if num_str.isdigit() else (_CN_NUM_MAP.get(num_str) or 0)
+            nums_positions.append((m.end(), num))
 
         if len(nums_positions) < 5:
             return self._extract_fallback(content, source_book)
