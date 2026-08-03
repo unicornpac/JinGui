@@ -226,6 +226,7 @@ tr:hover td { background:var(--hover); }
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
         <h3 id="bdTitle">批次详情</h3>
         <div style="display:flex;gap:8px;">
+          <button class="btn btn-primary btn-sm" onclick="newStaging()">➕ 新增条文</button>
           <button class="btn btn-primary btn-sm" onclick="approveAllBatch()">✅ 全部批准</button>
           <button class="btn btn-primary btn-sm" onclick="publishBatch()">🚀 发布到条文库</button>
           <button class="btn btn-del btn-sm" onclick="rejectBatch()">❌ 驳回批次</button>
@@ -722,11 +723,29 @@ async function saveStagingEdit() {
     if (raw) params.set('raw_content', raw);
     if (num) params.set('article_number', num);
     if (chapter) params.set('chapter', chapter);
-    const r = await (await fetch(`${API}/import/batches/${currentBatchId}/edit/${id}?${params}`, {method:'PUT'})).json();
+    let url, method;
+    if (editingStagingId) {
+      url = `${API}/import/batches/${currentBatchId}/edit/${editingStagingId}?${params}`;
+      method = 'PUT';
+    } else {
+      url = `${API}/import/batches/${currentBatchId}/texts?${params}`;
+      method = 'POST';
+    }
+    const r = await (await fetch(url, {method})).json();
     document.getElementById('stagingEditModal').classList.remove('show');
     toast(r.message || '已保存', 'success');
+    editingStagingId = null;
     viewBatch(currentBatchId);
   } catch(e) { toast('保存失败: '+e.message, 'error'); }
+}
+
+function newStaging() {
+  editingStagingId = null;
+  document.getElementById('seNumber').value = '';
+  document.getElementById('seChapter').value = '';
+  document.getElementById('seContent').value = '';
+  document.getElementById('seRaw').value = '';
+  document.getElementById('stagingEditModal').classList.add('show');
 }
 
 // 初始化
