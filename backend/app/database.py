@@ -55,13 +55,14 @@ def init_db():
 
 
 def _migrate_columns():
-    """为已有表添加新列（如果不存在）"""
+    """为已有表添加新列（如果不存在）；创建新表（如果不存在）"""
     import sqlite3
     db_path = os.path.join(DATA_DIR, "tcm.db")
     if not os.path.exists(db_path):
         return
     conn = sqlite3.connect(db_path)
     try:
+        # ── classic_texts 新列 ──
         cur = conn.execute("PRAGMA table_info(classic_texts)")
         existing = {row[1] for row in cur.fetchall()}
         new_columns = {
@@ -71,12 +72,20 @@ def _migrate_columns():
             "verified": "BOOLEAN DEFAULT 0",
             "verified_at": "DATETIME",
             "source_url": "VARCHAR(500)",
+            "raw_content": "TEXT",
+            "layout_marker": "VARCHAR(10)",
+            "source_file": "VARCHAR(500)",
+            "source_hash": "VARCHAR(64)",
+            "source_offset": "INTEGER",
+            "source_edition": "VARCHAR(200)",
+            "import_batch_id": "VARCHAR(36)",
         }
         for col_name, col_type in new_columns.items():
             if col_name not in existing:
                 conn.execute(f"ALTER TABLE classic_texts ADD COLUMN {col_name} {col_type}")
                 print(f"[migrate] 已添加列 classic_texts.{col_name}")
 
+        # ── documents 新列 ──
         cur = conn.execute("PRAGMA table_info(documents)")
         document_columns = {row[1] for row in cur.fetchall()}
         if "error_message" not in document_columns:
@@ -85,3 +94,6 @@ def _migrate_columns():
         conn.commit()
     finally:
         conn.close()
+
+    # ── 新表由 SQLAlchemy create_all 自动创建 ──
+    from . import models  # noqa: F401

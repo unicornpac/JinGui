@@ -10,12 +10,12 @@ from .database import Base
 class Category(Base):
     """分类表"""
     __tablename__ = "categories"
-    
+
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100), unique=True, nullable=False, comment="分类名称")
     description = Column(Text, comment="分类描述")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    
+
     # 关系
     texts = relationship("ClassicText", back_populates="category")
     cases = relationship("MedicalCase", back_populates="category")
@@ -24,7 +24,7 @@ class Category(Base):
 class ChapterMeta(Base):
     """篇章元数据表 —— 定义每本书的正确篇章结构和层级"""
     __tablename__ = "chapter_meta"
-    
+
     id = Column(Integer, primary_key=True, index=True)
     book = Column(String(50), nullable=False, comment="书：《伤寒论》或《金匮要略》")
     chapter = Column(String(200), nullable=False, comment="篇章名")
@@ -36,32 +36,87 @@ class ChapterMeta(Base):
 class ClassicText(Base):
     """经典条文表 —— 支持书→篇章→条文 三级结构"""
     __tablename__ = "classic_texts"
-    
+
     id = Column(Integer, primary_key=True, index=True)
     source_book = Column(String(200), nullable=False, comment="来源经典：《伤寒论》或《金匮要略》")
     chapter = Column(String(200), comment="篇章名（如 辨太阳病脉证并治）")
     section = Column(String(100), comment="子篇（如 上/中/下，仅太阳病需要）")
     article_number = Column(Integer, comment="条文编号（如 1, 2, 3...398）")
     order_index = Column(Integer, comment="篇章内排序序号")
-    content = Column(Text, nullable=False, comment="条文内容")
+    content = Column(Text, nullable=False, comment="规范正文（已清除排版符号、条号、冗余空白，供展示与检索）")
     keywords = Column(String(500), comment="关键词，逗号分隔")
     category_id = Column(Integer, ForeignKey("categories.id"), comment="分类ID")
+
+    # ── 溯源字段 ──
+    raw_content = Column(Text, comment="原始文本（含罗马数字、条号标记等，供追溯）")
+    layout_marker = Column(String(10), comment="版式标记（如 Ⅰ/Ⅱ/Ⅲ，从展示正文中清除的符号）")
+    source_file = Column(String(500), comment="来源文件名")
+    source_hash = Column(String(64), comment="来源文件的 SHA-256 哈希")
+    source_offset = Column(Integer, comment="在来源文件中的段落偏移量")
+    source_edition = Column(String(200), comment="底本版本信息")
+    import_batch_id = Column(String(36), comment="导入批次 ID（UUID）")
+
     # 互联网校验字段
     verified = Column(Boolean, default=False, comment="是否已通过互联网比对校验")
     verified_at = Column(DateTime(timezone=True), comment="校验时间")
     source_url = Column(String(500), comment="互联网参考来源URL")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
-    
+
     # 关系
     category = relationship("Category", back_populates="texts")
     related_cases = relationship("TextCaseRelation", back_populates="text")
 
 
+class ImportBatch(Base):
+    """导入批次表 —— 一次上传/导入产生一个批次"""
+    __tablename__ = "import_batches"
+
+    id = Column(Integer, primary_key=True, index=True)
+    batch_id = Column(String(36), unique=True, nullable=False, comment="批次 UUID")
+    source_file = Column(String(500), comment="来源文件名")
+    source_hash = Column(String(64), comment="来源文件 SHA-256")
+    source_edition = Column(String(200), comment="底本版本")
+    total_articles = Column(Integer, default=0, comment="解析出的条文总数")
+    unique_numbers = Column(Integer, default=0, comment="识别的唯一条号数")
+    status = Column(String(20), default="pending", comment="状态：pending/needs_review/published/rejected")
+    quality_report = Column(Text, comment="质检报告 JSON")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    published_at = Column(DateTime(timezone=True), comment="发布时间")
+
+
+class ImportStaging(Base):
+    """导入暂存表 —— 解析结果先存此处，人工确认后再发布到 classic_texts"""
+    __tablename__ = "import_staging"
+
+    id = Column(Integer, primary_key=True, index=True)
+    batch_id = Column(String(36), ForeignKey("import_batches.batch_id"), nullable=False, comment="所属批次")
+    source_book = Column(String(200), nullable=False)
+    chapter = Column(String(200))
+    section = Column(String(100))
+    article_number = Column(Integer, comment="条号")
+    order_index = Column(Integer, comment="篇章内排序")
+    raw_content = Column(Text, comment="原始文本（含排版符号）")
+    content = Column(Text, nullable=False, comment="规范正文（已清理）")
+    layout_marker = Column(String(10), comment="版式标记")
+    keywords = Column(String(500))
+    source_file = Column(String(500))
+    source_hash = Column(String(64))
+    source_offset = Column(Integer, comment="段落偏移量")
+    source_edition = Column(String(200))
+    status = Column(String(20), default="needs_review", comment="状态：needs_review/approved/rejected")
+    issue = Column(String(200), comment="质量问题标记（如 duplicate/missing_chapter/empty_content）")
+    duplicate_of = Column(Integer, comment="重复号：指向同 batch 中相同 article_number 的另一条，或 classic_texts 中的已有记录")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    # 关系
+    batch = relationship("ImportBatch", backref="staging_records", foreign_keys=[batch_id])
+
+
 class MedicalCase(Base):
     """病案表"""
     __tablename__ = "medical_cases"
-    
+
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String(200), nullable=False, comment="病案标题")
     content = Column(Text, nullable=False, comment="病案内容")
@@ -74,7 +129,7 @@ class MedicalCase(Base):
     correct_answer = Column(Text, comment="参考答案（辨病/平脉/析证/定治）")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
-    
+
     # 关系
     category = relationship("Category", back_populates="cases")
     related_texts = relationship("TextCaseRelation", back_populates="case")
@@ -83,13 +138,13 @@ class MedicalCase(Base):
 class TextCaseRelation(Base):
     """条文与病案关联表"""
     __tablename__ = "text_case_relations"
-    
+
     id = Column(Integer, primary_key=True, index=True)
     text_id = Column(Integer, ForeignKey("classic_texts.id"), nullable=False)
     case_id = Column(Integer, ForeignKey("medical_cases.id"), nullable=False)
     similarity_score = Column(String(50), comment="相似度评分")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    
+
     text = relationship("ClassicText", back_populates="related_cases")
     case = relationship("MedicalCase", back_populates="related_texts")
 
@@ -97,7 +152,7 @@ class TextCaseRelation(Base):
 class Document(Base):
     """上传文档表"""
     __tablename__ = "documents"
-    
+
     id = Column(Integer, primary_key=True, index=True)
     filename = Column(String(500), nullable=False, comment="文件名")
     file_type = Column(String(50), comment="文件类型：pdf, docx, txt等")
@@ -113,7 +168,7 @@ class Document(Base):
 class LearningHistory(Base):
     """学习记录表"""
     __tablename__ = "learning_history"
-    
+
     id = Column(Integer, primary_key=True, index=True)
     user_query = Column(Text, nullable=False, comment="用户查询的条文")
     text_id = Column(Integer, ForeignKey("classic_texts.id"), comment="关联的条文ID")
@@ -125,7 +180,7 @@ class LearningHistory(Base):
 class TrainingSession(Base):
     """训练会话表 —— 智能体三阶梯多轮交互"""
     __tablename__ = "training_sessions"
-    
+
     id = Column(Integer, primary_key=True, index=True)
     student_id = Column(String(100), default="anonymous", comment="学生标识（可扩展为学号）")
     difficulty_level = Column(String(20), nullable=False, comment="难度等级：初级/中级/高级")
@@ -135,7 +190,7 @@ class TrainingSession(Base):
     score = Column(String(50), comment="综合评价分数/等级")
     started_at = Column(DateTime(timezone=True), server_default=func.now())
     ended_at = Column(DateTime(timezone=True), comment="结束时间")
-    
+
     # 关系
     case = relationship("MedicalCase")
     messages = relationship("SessionMessage", back_populates="session", order_by="SessionMessage.created_at")
@@ -144,7 +199,7 @@ class TrainingSession(Base):
 class SessionMessage(Base):
     """会话消息表"""
     __tablename__ = "session_messages"
-    
+
     id = Column(Integer, primary_key=True, index=True)
     session_id = Column(Integer, ForeignKey("training_sessions.id"), nullable=False)
     role = Column(String(20), nullable=False, comment="角色：student / agent / system")
@@ -152,6 +207,6 @@ class SessionMessage(Base):
     message_type = Column(String(30), comment="消息类型：question/hint/correction/praise/evaluation/other")
     key_decision = Column(Text, comment="关键决策点记录（如辨病完成、析证完成等）")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    
+
     # 关系
     session = relationship("TrainingSession", back_populates="messages")

@@ -18,7 +18,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from .database import init_db
 from .dependencies import verify_admin_page
-from .routers import texts, cases, analysis, documents, agent
+from .routers import texts, cases, analysis, documents, agent, import_review
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
@@ -79,8 +79,7 @@ app.include_router(cases.router, prefix="/api/cases", tags=["病案管理"])
 app.include_router(analysis.router, prefix="/api/analysis", tags=["AI分析"])
 app.include_router(documents.router, prefix="/api/documents", tags=["文档管理"])
 app.include_router(agent.router, prefix="/api/agent", tags=["智能体训练"])
-
-
+app.include_router(import_review.router)
 @app.on_event("startup")
 async def startup_event():
     """应用启动时初始化数据库"""

@@ -5,6 +5,7 @@
 """
 import os
 import re
+import hashlib
 from typing import Dict, List, Tuple, Optional
 from pathlib import Path
 
@@ -31,42 +32,226 @@ SOURCE_BOOK_KEYWORDS = {
     "《黄帝内经》": ["内经", "素问", "灵枢"],
 }
 
+# ── 罗马数字映射（Ⅰ-Ⅹ）──
+_ROMAN_MAP = dict(zip("ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ", range(1, 11)))
+
+# 句末条号模式：匹配末尾的 （数字） 或 （中文数字）
+_SENTENCE_END_NUM_RE = re.compile(r'[（(](\d{1,3})[）)]\s*$')
+
+# 罗马数字开头的版式标记
+_LAYOUT_MARKER_RE = re.compile(r'^[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]\s*')
+
+# 章节标题模式
+_CHAPTER_PATTERNS = [
+    re.compile(r'辨(太阳|阳明|少阳|太阴|少阴|厥阴)病脉证并治[（(]?([上下中])?[)）]?'),
+    re.compile(r'辨(霍乱|阴阳易差后劳复)病脉证并治'),
+]
+
+# 金匮要略章节
+_JINGUI_CHAPTER_RE = re.compile(
+    r'([脏腑经络先后痉湿暍百合狐惑阴阳毒疟中风历节血痹虚劳肺痿肺痈咳嗽上气奔豚气'
+    r'胸痹心痛短气腹满寒疝宿食五脏风寒积聚痰饮咳嗽消渴小便不利淋水气黄疸惊悸吐衄下血'
+    r'胸满瘀血呕吐哕下利疮痈肠痈浸淫趺蹶手指臂肿转筋阴狐疝蛔虫妇人妊娠妇人产后妇人杂'
+    r'杂疗禽兽鱼虫禁忌果实菜谷禁忌]+'
+    r'(?:病脉证[并治]*|病脉证治|方|禁忌并治|禁忌)'
+    r'[第]?[一二三四五六七八九十百廿卅]+)'
+)
+
+
+def _strip_layout_marker(text: str) -> Tuple[str, Optional[str]]:
+    """从段落开头移除罗马数字版式标记，返回 (清理后文本, 标记)"""
+    m = _LAYOUT_MARKER_RE.match(text)
+    if m:
+        marker = m.group().strip()
+        cleaned = text[m.end():].strip()
+        return cleaned, marker
+    return text, None
+
+
+def _extract_sentence_end_number(text: str) -> Optional[int]:
+    """从句末提取条号 （N），返回整数条号或 None"""
+    m = _SENTENCE_END_NUM_RE.search(text.rstrip())
+    if m:
+        return int(m.group(1))
+    return None
+
+
+def _is_chapter_header(text: str) -> bool:
+    """判断是否为章节标题行"""
+    text = text.strip()
+    for pat in _CHAPTER_PATTERNS:
+        if pat.match(text):
+            return True
+    # 金匮要略章节
+    if _JINGUI_CHAPTER_RE.match(text):
+        return True
+    return False
+
+
+def _parse_chapter(text: str) -> Tuple[str, Optional[str]]:
+    """解析章节标题，返回 (chapter_name, section)"""
+    text = text.strip()
+    for pat in _CHAPTER_PATTERNS:
+        m = pat.match(text)
+        if m:
+            jing = m.group(1)
+            sub = m.group(2) if m.lastindex >= 2 else None
+            return f"辨{jing}病脉证并治", sub
+    jm = _JINGUI_CHAPTER_RE.match(text)
+    if jm:
+        return jm.group(0).rstrip("。，,. "), None
+    return text, None
+
+
+def _clean_display_content(raw: str) -> str:
+    """
+    清理展示用正文：
+    1. 移除每行开头的罗马数字版式标记（支持多段合并的条文）
+    2. 移除末尾的 （数字） 条号
+    3. 规范化空白
+    """
+    # 先分行处理，每行单独剥离罗马数字
+    lines = raw.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    cleaned_lines = []
+    for line in lines:
+        stripped, _ = _strip_layout_marker(line.strip())
+        # 移除末尾条号
+        stripped = _SENTENCE_END_NUM_RE.sub('', stripped).strip()
+        if stripped:
+            cleaned_lines.append(stripped)
+    s = "\n".join(cleaned_lines)
+    # 规范化空白
+    s = re.sub(r'[ \t]+', ' ', s)
+    s = s.strip()
+    return s
+
+
+def _split_by_sentence_end_number(
+    paragraphs: List[Tuple[str, int]]
+) -> List[dict]:
+    """
+    句末条号收束切分 —— 核心切分算法。
+    
+    输入: [(段落文本, 段落偏移量), ...]
+    
+    算法:
+    1. 维护缓冲区，累积同一条号的多个段落
+    2. 遇到句末 （N） 时提取条号
+    3. 连续段落相同条号 → 合并为一条（多段条文）
+    4. 不同条号 → 结束前一条，开始新条
+    
+    返回: [{
+        "article_number": int,
+        "raw_content": str,        # 原始文本（含罗马数字、条号标记）
+        "content": str,            # 规范正文（已清理）
+        "layout_marker": str,      # 版式标记
+        "chapter": str,            # 所属章节
+        "section": str,            # 子篇（上/中/下）
+        "source_offset": int,      # 起始段落偏移量
+    }, ...]
+    """
+    articles = []
+    buffer = {}  # 当前累积的条文
+
+    def _finish_article():
+        nonlocal buffer
+        if buffer and buffer.get("article_number") is not None:
+            # 合并 raw_content 和 content
+            buffer["raw_content"] = "\n".join(buffer["raw_parts"])
+            buffer["content"] = _clean_display_content(buffer["raw_content"])
+            articles.append({
+                "article_number": buffer["article_number"],
+                "raw_content": buffer["raw_content"],
+                "content": buffer["content"],
+                "layout_marker": (buffer.get("markers") or [None])[0],
+                "chapter": buffer.get("chapter"),
+                "section": buffer.get("section"),
+                "source_offset": buffer["source_offset"],
+            })
+        buffer = {}
+
+    current_chapter = None
+    current_section = None
+
+    for para_text, para_offset in paragraphs:
+        text = para_text.strip()
+        if not text:
+            continue
+
+        # ── 章节标题 → 更新上下文 ──
+        if _is_chapter_header(text):
+            # 先结束当前累积的条文
+            _finish_article()
+            current_chapter, current_section = _parse_chapter(text)
+            continue
+
+        # ── 标题行 / 元数据 → 跳过 ──
+        # 首行为书名+统计
+        if "原文" in text and "条" in text and "整理" in text:
+            continue
+        # 只有罗马数字的单行（纯版式标记）
+        stripped, _ = _strip_layout_marker(text)
+        if len(stripped) < 4 and all(ch in "ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ \t" for ch in text):
+            continue
+
+        # ── 提取句末条号 ──
+        article_num = _extract_sentence_end_number(text)
+
+        if article_num is not None:
+            # 与缓冲区相同条号 → 合并（多段条文）
+            if buffer and buffer.get("article_number") == article_num:
+                buffer["raw_parts"].append(text)
+                _, m2 = _strip_layout_marker(text)
+                if m2:
+                    buffer.setdefault("markers", []).append(m2)
+                continue
+
+            # 不同条号 → 结束前一条
+            _finish_article()
+
+            # 开始新条
+            _, marker = _strip_layout_marker(text)
+            buffer = {
+                "article_number": article_num,
+                "raw_parts": [text],
+                "markers": [marker] if marker else [],
+                "chapter": current_chapter,
+                "section": current_section,
+                "source_offset": para_offset,
+            }
+        else:
+            # 无条号文本：如果缓冲区有内容，可能是续文（如跨页段落）
+            if buffer:
+                buffer["raw_parts"].append(text)
+            # 否则忽略
+
+    # 处理最后一条
+    _finish_article()
+
+    return articles
+
+
+# ─────────────────────────────────────────────
+# DocumentParser 类
+# ─────────────────────────────────────────────
+
 
 class DocumentParser:
     """文档解析器"""
-    
+
     def __init__(self, upload_dir: str = None):
-        """
-        初始化解析器
-        
-        Args:
-            upload_dir: 上传文件存储目录
-        """
         self.upload_dir = upload_dir or "uploads"
         os.makedirs(self.upload_dir, exist_ok=True)
-    
+
     def parse(self, file_path: str, file_type: str = None) -> Dict[str, any]:
-        """
-        解析文档
-        
-        Args:
-            file_path: 文件路径
-            file_type: 文件类型（可选，会自动检测）
-        
-        Returns:
-            包含解析结果的字典
-        """
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"文件不存在: {file_path}")
-        
-        # 自动检测文件类型
         if not file_type:
             file_type = self._detect_file_type(file_path)
-        
-        # 根据文件类型选择解析方法
+
         if file_type == "application/pdf" or file_path.lower().endswith('.pdf'):
             return self._parse_pdf(file_path)
-        elif file_type in ["application/vnd.openxmlformats-officedocument.wordprocessingml.document", 
+        elif file_type in ["application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                           "application/msword"] or file_path.lower().endswith(('.docx', '.doc')):
             return self._parse_word(file_path)
         elif file_type in ["application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -75,11 +260,9 @@ class DocumentParser:
         elif file_type == "text/plain" or file_path.lower().endswith('.txt'):
             return self._parse_txt(file_path)
         else:
-            # 默认按文本文件处理
             return self._parse_txt(file_path)
-    
+
     def _detect_file_type(self, file_path: str) -> str:
-        """根据文件扩展名检测文件类型"""
         ext = Path(file_path).suffix.lower()
         type_map = {
             '.pdf': 'application/pdf',
@@ -90,12 +273,18 @@ class DocumentParser:
             '.txt': 'text/plain'
         }
         return type_map.get(ext, 'text/plain')
-    
+
+    def _compute_sha256(self, file_path: str) -> str:
+        """计算文件 SHA-256"""
+        h = hashlib.sha256()
+        with open(file_path, 'rb') as f:
+            for chunk in iter(lambda: f.read(65536), b''):
+                h.update(chunk)
+        return h.hexdigest()
+
     def _parse_pdf(self, file_path: str) -> Dict[str, any]:
-        """解析PDF文件"""
         if pdfplumber is None:
             raise ImportError("pdfplumber未安装，请运行: pip install pdfplumber")
-        
         text_content = ""
         pages_count = 0
         try:
@@ -107,46 +296,47 @@ class DocumentParser:
                         text_content += page_text + "\n"
         except Exception as e:
             raise Exception(f"PDF解析失败: {str(e)}")
-        
         return {
             "content": text_content.strip(),
             "pages": pages_count,
-            "file_type": "pdf"
+            "file_type": "pdf",
+            "sha256": self._compute_sha256(file_path),
         }
-    
+
     def _parse_word(self, file_path: str) -> Dict[str, any]:
-        """解析Word文件"""
         if DocxDocument is None:
             raise ImportError("python-docx未安装，请运行: pip install python-docx")
-        
         try:
             doc = DocxDocument(file_path)
-            paragraphs = [para.text for para in doc.paragraphs if para.text.strip()]
-            text_content = "\n".join(paragraphs).strip()
+            paragraphs_with_text = []
+            all_text_lines = []
+            for i, para in enumerate(doc.paragraphs):
+                text = para.text.strip()
+                if text:
+                    paragraphs_with_text.append((text, i))
+                    all_text_lines.append(text)
         except Exception as e:
             raise Exception(f"Word解析失败: {str(e)}")
-        
+
         return {
-            "content": text_content,
-            "paragraphs": len(paragraphs),
-            "file_type": "word"
+            "content": "\n".join(all_text_lines).strip(),
+            "paragraphs": paragraphs_with_text,
+            "paragraph_count": len(paragraphs_with_text),
+            "file_type": "word",
+            "sha256": self._compute_sha256(file_path),
         }
-    
+
     def _parse_excel(self, file_path: str) -> Dict[str, any]:
-        """解析Excel文件，优先识别条文结构（编号、内容、来源等列）"""
         if pd is None:
             raise ImportError("pandas未安装，请运行: pip install pandas openpyxl")
-        
         all_text = []
         sheets_count = 0
         try:
             excel_file = pd.ExcelFile(file_path)
             sheets_count = len(excel_file.sheet_names)
-            
             for sheet_name in excel_file.sheet_names:
                 df = pd.read_excel(excel_file, sheet_name=sheet_name, header=None)
                 df = df.dropna(how='all').fillna('')
-                # 尝试识别条文结构：首行可能是列名
                 first_row = [str(v).lower() for v in df.iloc[0]] if len(df) > 0 else []
                 content_col = None
                 for i, c in enumerate(first_row):
@@ -157,9 +347,7 @@ class DocumentParser:
                     content_col = 1
                 elif content_col is None:
                     content_col = 0
-                # 若首行像列名，跳过
                 start_row = 1 if any(k in ' '.join(first_row) for k in ['编号', '条', '内容', '来源']) else 0
-                
                 rows = []
                 for idx in range(start_row, len(df)):
                     row = df.iloc[idx]
@@ -169,27 +357,22 @@ class DocumentParser:
                     cell = vals[content_col] if content_col < len(vals) else (vals[-1] if vals else "")
                     if cell and len(cell) > 15:
                         rows.append(cell)
-                
                 sheet_text = f"\n=== 工作表: {sheet_name} ===\n" + "\n\n".join(rows)
                 all_text.append(sheet_text)
-            
             text_content = "\n\n".join(all_text).strip()
         except Exception as e:
             raise Exception(f"Excel解析失败: {str(e)}")
-        
         return {
             "content": text_content,
             "sheets": sheets_count,
-            "file_type": "excel"
+            "file_type": "excel",
+            "sha256": self._compute_sha256(file_path),
         }
-    
+
     def _parse_txt(self, file_path: str) -> Dict[str, any]:
-        """解析TXT文件"""
         try:
-            # 尝试多种编码
             encodings = ['utf-8', 'gbk', 'gb2312', 'latin-1']
             text_content = None
-            
             for encoding in encodings:
                 try:
                     with open(file_path, 'r', encoding=encoding) as f:
@@ -197,271 +380,135 @@ class DocumentParser:
                     break
                 except UnicodeDecodeError:
                     continue
-            
             if text_content is None:
                 raise Exception("无法使用常见编码读取文件")
         except Exception as e:
             raise Exception(f"TXT解析失败: {str(e)}")
-        
+        paragraphs = [(line.strip(), i) for i, line in enumerate(text_content.split('\n')) if line.strip()]
         return {
             "content": text_content,
-            "file_type": "txt"
+            "paragraphs": paragraphs,
+            "paragraph_count": len(paragraphs),
+            "file_type": "txt",
+            "sha256": self._compute_sha256(file_path),
         }
-    
+
     def _detect_source_book(self, content: str, filename: str = "") -> str:
-        """从内容或文件名推断来源经典"""
         combined = (content[:3000] + " " + filename).lower()
         if any(kw in combined for kw in ["伤寒论", "伤寒"]):
             return "《伤寒论》"
         if any(kw in combined for kw in ["金匮", "金匮要略"]):
             return "《金匮要略》"
-        return "《伤寒论》"  # 默认
+        return "《伤寒论》"
 
-    def _find_all_chapter_boundaries(self, content: str) -> List[Tuple[int, str, Optional[str], Optional[str]]]:
-        """
-        扫描全文，找出所有篇章分界位置。
-        
-        Returns: [(位置, 篇章名, 子篇(section), 来源书), ...] 按位置排序
-        
-        支持：
-        - 《伤寒论》六经+霍乱+阴阳易 章节标题
-        - 《金匮要略》25篇标题（含"第X"序号）
-        """
-        boundaries = []
-        
-        # ── 伤寒论章节模式 ──
-        shanghan_chapter_pat = re.compile(
-            r'辨(太阳|阳明|少阳|太阴|少阴|厥阴)病脉证并治[（(]?([上下中])?[)）]?'
-        )
-        shanghan_extra_pat = re.compile(
-            r'辨(霍乱|阴阳易差后劳复)病脉证并治'
-        )
-        
-        for m in shanghan_chapter_pat.finditer(content):
-            jing = m.group(1)  # 太阳/阳明/...
-            sub = m.group(2) if m.group(2) else None  # 上/中/下
-            chapter = f"辨{jing}病脉证并治"
-            boundaries.append((m.start(), chapter, sub, "《伤寒论》"))
-        
-        for m in shanghan_extra_pat.finditer(content):
-            name = m.group(1)
-            chapter = f"辨{name}病脉证并治"
-            boundaries.append((m.start(), chapter, None, "《伤寒论》"))
-        
-        # ── 金匮要略章节模式（"XX病脉证并治第X" 或 "XX第X"）──
-        jingui_chapter_pat = re.compile(
-            r'([脏腑经络先后痉湿暍百合狐惑阴阳毒疟中风历节血痹虚劳肺痿肺痈咳嗽上气奔豚气胸痹心痛短气腹满寒疝宿食五脏风寒积聚痰饮咳嗽消渴小便不利淋水气黄疸惊悸吐衄下血胸满瘀血呕吐哕下利疮痈肠痈浸淫趺蹶手指臂肿转筋阴狐疝蛔虫妇人妊娠妇人产后妇人杂杂疗禽兽鱼虫禁忌果实菜谷禁忌]+(?:病脉证[并治]*|病脉证治|方|禁忌并治|禁忌)[第]?[一二三四五六七八九十百廿卅]+)'
-        )
-        for m in jingui_chapter_pat.finditer(content):
-            chapter = m.group(0).strip().rstrip("。，,. ")
-            if len(chapter) > 8 and len(chapter) < 80:
-                boundaries.append((m.start(), chapter, None, "《金匮要略》"))
-        
-        # 按位置排序
-        boundaries.sort(key=lambda x: x[0])
-        return boundaries
-
-    def _assign_chapter_to_position(self, pos: int, boundaries: List[Tuple[int, str, Optional[str], Optional[str]]],
-                                     default_book: str) -> Tuple[str, Optional[str]]:
-        """
-        根据文本位置和章节分界，确定它属于哪个篇章。
-        返回 (chapter, section)
-        """
-        chapter = None
-        section = None
-        for b_pos, b_ch, b_sec, _ in boundaries:
-            if b_pos <= pos:
-                chapter = b_ch
-                section = b_sec
-        
-        if chapter is None:
-            chapter = "辨太阳病脉证并治"  # 默认
-
-        return chapter, section
-
-    def _normalize_content(self, content: str) -> str:
-        """标准化文本：统一换行、去除多余空白"""
-        if not content:
-            return ""
-        s = content.replace("\r\n", "\n").replace("\r", "\n")
-        s = re.sub(r'[ \t]+', ' ', s)  # 制表符、多空格变单空格
-        s = re.sub(r'\n[ \t]+', '\n', s)  # 行首空白
-        s = re.sub(r'[ \t]+\n', '\n', s)  # 行尾空白
-        return s.strip()
-
-    def _find_tiao_starts(self, content: str, prefer_di_tiao: bool = True) -> List[Tuple[int, str]]:
-        """
-        找出所有条文起始位置
-        prefer_di_tiao: 若存在「第X条」则只用该格式，避免与条文内容中的「1. 桂枝」等混淆
-        """
-        starts = []
-        # 格式1：第X条、第 X 条、第一条（支持空格）
-        for m in re.finditer(r'第\s*([一二三四五六七八九十百千零\d]+)\s*条', content):
-            starts.append((m.start(), m.group(0)))
-        # 格式2：仅当无「第X条」时，用行首 1. 2. 3.（排除 1.2.3 这类非条文编号）
-        if not starts or not prefer_di_tiao:
-            for m in re.finditer(r'(?:^|\n\n)\s*(\d{1,3})\s*[\.\、．。]\s*(?=\n|[^\d\s])', content, re.MULTILINE):
-                num = int(m.group(1))
-                if 1 <= num <= 500:
-                    starts.append((m.start(), m.group(0)))
-        # 去重、按位置排序
-        seen_pos = set()
-        unique = []
-        for pos, tag in sorted(starts, key=lambda x: x[0]):
-            if pos not in seen_pos:
-                seen_pos.add(pos)
-                unique.append((pos, tag))
-        return unique
-
-    def _split_by_tiaohao(self, content: str) -> List[str]:
-        """
-        按「第X条」或数字编号精确分割
-        支持：第1条、第 1 条、第一条、1. 2. 3.、1、2、3 等格式
-        """
-        content = self._normalize_content(content)
-        # 优先用「第X条」，若数量>=2则只用该格式
-        di_tiao_matches = list(re.finditer(r'第\s*([一二三四五六七八九十百千零\d]+)\s*条', content))
-        prefer_di_tiao = len(di_tiao_matches) >= 2
-        starts = self._find_tiao_starts(content, prefer_di_tiao=prefer_di_tiao)
-        if not starts:
-            return []
-
-        result = []
-        for i, (pos, _) in enumerate(starts):
-            end = starts[i + 1][0] if i + 1 < len(starts) else len(content)
-            t = content[pos:end].strip()
-            # 排除章节标题（整段仅为辨XX病脉证并治）
-            if re.match(r'^辨[^\n]{0,40}病脉证并治', t) and '第' not in t[:25]:
-                continue
-            # 去掉末尾的章节标题行（避免误计入条文内容）
-            t = re.sub(r'\n辨[^\n]{0,35}病脉证并治[^\n]*$', '', t)
-            t = re.sub(r'\n{3,}', '\n\n', t).strip()
-            # 若单条内又含「第X条」，说明被合并了，按内部标记再切分
-            inner = re.finditer(r'第\s*([一二三四五六七八九十百千零\d]+)\s*条', t)
-            inner_list = list(inner)
-            if len(inner_list) >= 2:
-                for j, im in enumerate(inner_list):
-                    start_inner = im.start()
-                    end_inner = inner_list[j + 1].start() if j + 1 < len(inner_list) else len(t)
-                    sub = t[start_inner:end_inner].strip()
-                    sub = re.sub(r'\n辨[^\n]{0,35}病脉证并治[^\n]*$', '', sub).strip()
-                    if 10 < len(sub) < 2500:
-                        result.append(sub)
-            elif 10 < len(t) < 2500:
-                result.append(t)
-        return result
+    # ── 新版提取入口 ──
 
     def extract_texts_and_cases(
-        self, content: str, filename: str = ""
+        self, content: str, filename: str = "",
+        paragraphs: List[Tuple[str, int]] = None,
     ) -> Dict[str, any]:
         """
-        从解析的文本中提取条文和病案，逐条识别章节归属。
-        核心修复：每条条文根据其在文档中的位置，向前查找最近的章节标记。
+        从解析的文本中提取条文和病案。
+
+        优先使用 paragraphs（段落列表）进行句末条号收束切分；
+        若无 paragraphs（如 PDF 纯文本），回退到旧版兼容模式。
+
+        返回: {
+            "texts": [{
+                "article_number": int,
+                "raw_content": str,
+                "content": str,
+                "layout_marker": str,
+                "source_book": str,
+                "chapter": str,
+                "section": str,
+                "source_offset": int,
+            }, ...],
+            "cases": [...]
+        }
         """
         source_book = self._detect_source_book(content, filename)
-        chapter_boundaries = self._find_all_chapter_boundaries(content)
-        
+
+        # ── 优先：句末条号收束切分（需要段落信息）──
+        if paragraphs and len(paragraphs) > 5:
+            articles = _split_by_sentence_end_number(paragraphs)
+            if len(articles) >= 10:
+                texts_raw = []
+                for art in articles:
+                    if not art.get("content") or len(art["content"]) < 10:
+                        continue
+                    texts_raw.append({
+                        "article_number": art["article_number"],
+                        "raw_content": art["raw_content"],
+                        "content": art["content"],
+                        "layout_marker": art.get("layout_marker"),
+                        "source_book": source_book,
+                        "chapter": art.get("chapter"),
+                        "section": art.get("section"),
+                        "source_offset": art.get("source_offset"),
+                    })
+                return {"texts": texts_raw, "cases": []}
+
+        # ── 回退：兼容无段落信息的纯文本 ──
+        return self._extract_legacy(content, filename, source_book)
+
+    def _extract_legacy(self, content: str, filename: str, source_book: str) -> Dict[str, any]:
+        """旧版兼容提取（用于无段落信息的纯文本/PFD）"""
         texts_raw = []
         cases_raw = []
         seen_texts = set()
 
-        # ========== 策略1：按「第X条」精确分割（伤寒论398条等）==========
-        tiao_items = self._split_by_tiaohao(content)
-        if tiao_items:
-            for t in tiao_items:
-                t_clean = t[:2000].strip()
-                if t_clean and t_clean not in seen_texts and 15 < len(t_clean) < 2000:
-                    seen_texts.add(t_clean)
-                    # 根据条文在原文中的位置确定章节
-                    pos = content.find(t_clean[:30])
-                    if pos < 0:
-                        pos = content.find(t_clean[:15])
-                    chapter, section = self._assign_chapter_to_position(
-                        max(pos, 0), chapter_boundaries, source_book)
-                    texts_raw.append({
-                        "content": t_clean,
-                        "source_book": source_book,
-                        "chapter": chapter,
-                        "section": section
-                    })
-            if len(texts_raw) >= 5:
-                return {"texts": texts_raw, "cases": cases_raw}
+        # 尝试句末条号模式（全文级别）
+        # 按 （数字）\n 分割
+        parts = re.split(r'(?<=[）)]\d{1,3}[）)])\s*\n', content)
+        if len(parts) < 5:
+            # 回退到旧策略
+            return self._extract_fallback(content, source_book)
 
-        # ========== 策略2：其他条文格式 ==========
-        if not texts_raw:
-            patterns = [
-                (r'第[一二三四五六七八九十百千\d]+条[：:\.\s]*([^\n]+(?:\n(?![第\d一二三四五六七八九十百千]+条)[^\n]*)*)', 1),
-                (r'^\s*(\d{1,3})[\.\、\s]+([^\n]+(?:\n(?!^\s*\d{1,3}[\.\、])[^\n]*)*)', 2),
-            ]
-            for pattern, grp in patterns:
-                for m in re.finditer(pattern, content, re.MULTILINE):
-                    t = (m.group(grp) if m.lastindex >= grp else m.group(0)).strip()
-                    if 15 < len(t) < 1500 and t not in seen_texts:
-                        seen_texts.add(t)
-                        chapter, section = self._assign_chapter_to_position(
-                            m.start(), chapter_boundaries, source_book)
-                        texts_raw.append({
-                            "content": t[:2000],
-                            "source_book": source_book,
-                            "chapter": chapter,
-                            "section": section
-                        })
-
-        # ========== 策略3：六经病开头 ==========
-        if not tiao_items:
-            for sep in ['太阳病', '阳明病', '少阳病', '太阴病', '少阴病', '厥阴病']:
-                parts = content.split(sep)
-                for p in parts[1:]:
-                    rest = p.strip()
-                    for next_s in ['太阳病', '阳明病', '少阳病', '太阴病', '少阴病', '厥阴病', '伤寒']:
-                        if next_s in rest:
-                            rest = rest[:rest.find(next_s)].strip()
-                    t = (sep + rest).strip() if rest else ""
-                    if 25 < len(t) < 800 and t not in seen_texts:
-                        seen_texts.add(t)
-                        idx = content.find(t[:20])
-                        chapter, section = self._assign_chapter_to_position(
-                            max(idx, 0), chapter_boundaries, source_book)
-                        texts_raw.append({
-                            "content": t[:2000],
-                            "source_book": source_book,
-                            "chapter": chapter,
-                            "section": section
-                        })
-
-        # ========== 病案提取 ==========
-        case_keywords = ['患者', '主诉', '现病史', '方药', '处方', '诊断', '症见']
-        has_case_hint = any(k in content for k in case_keywords)
-        if has_case_hint or len(texts_raw) < 10:
-            case_patterns = [
-                r'病案[：:\s]*\n([^\n]+(?:\n(?!病案|案例|第\d+条)[^\n]*){2,})',
-                r'案例[：:\s]*\n([^\n]+(?:\n(?!病案|案例|第\d+条)[^\n]*){2,})',
-                r'(患者[^\n]+(?:\n[^\n]+){4,}?)(?=\n\n患者|\n\n病案|第\d+条|$)',
-            ]
-            for pattern in case_patterns:
-                for m in re.finditer(pattern, content, re.MULTILINE | re.DOTALL):
-                    c = (m.group(1) if m.lastindex >= 1 else m.group(0)).strip()
-                    if len(c) > 80 and not any(t["content"] == c[:500] for t in cases_raw):
-                        title = c.split("\n")[0][:50] if c else "病案"
-                        cases_raw.append({"content": c[:2000], "title": title})
-
-        # ========== 兜底：按段落分割 ==========
-        if not texts_raw and not cases_raw:
-            paragraphs = [p.strip() for p in re.split(r'\n\s*\n', content) if len(p.strip()) > 30]
-            for para in paragraphs:
-                if any(k in para for k in ['太阳病', '阳明病', '伤寒', '桂枝', '麻黄']) and len(para) < 500:
-                    if para not in seen_texts:
-                        seen_texts.add(para)
-                        idx = content.find(para[:20])
-                        chapter, section = self._assign_chapter_to_position(
-                            max(idx, 0), chapter_boundaries, source_book)
-                        texts_raw.append({
-                            "content": para[:2000],
-                            "source_book": source_book,
-                            "chapter": chapter,
-                            "section": section
-                        })
-                elif any(k in para for k in case_keywords) and len(para) > 60:
-                    cases_raw.append({"content": para[:2000], "title": para.split("\n")[0][:50] or "病案"})
+        for part in parts:
+            t = part.strip()
+            if not t or len(t) < 15:
+                continue
+            num = _extract_sentence_end_number(t)
+            cleaned = _clean_display_content(t)
+            if cleaned and cleaned not in seen_texts:
+                seen_texts.add(cleaned)
+                texts_raw.append({
+                    "article_number": num,
+                    "raw_content": t,
+                    "content": cleaned,
+                    "layout_marker": None,
+                    "source_book": source_book,
+                    "chapter": None,
+                    "section": None,
+                    "source_offset": None,
+                })
 
         return {"texts": texts_raw, "cases": cases_raw}
+
+    def _extract_fallback(self, content: str, source_book: str) -> Dict[str, any]:
+        """最终的兜底策略"""
+        texts_raw = []
+        seen = set()
+        # 按六经病开头切
+        for sep in ['太阳病', '阳明病', '少阳病', '太阴病', '少阴病', '厥阴病']:
+            parts = content.split(sep)
+            for p in parts[1:]:
+                rest = p.strip()
+                for ns in ['太阳病', '阳明病', '少阳病', '太阴病', '少阴病', '厥阴病', '伤寒']:
+                    if ns in rest[1:]:
+                        rest = rest[:rest.index(ns)]
+                t = (sep + rest).strip()
+                if 25 < len(t) < 1500 and t not in seen:
+                    seen.add(t)
+                    texts_raw.append({
+                        "article_number": None,
+                        "raw_content": t,
+                        "content": t,
+                        "layout_marker": None,
+                        "source_book": source_book,
+                        "chapter": None,
+                        "section": None,
+                        "source_offset": None,
+                    })
+        return {"texts": texts_raw, "cases": []}
