@@ -34,6 +34,7 @@ FILES=(
   "app/routers/texts.py"
   "seed_texts.py"
   "static/index.html"
+  "static/showcase.html"
   "static/study.html"
   "static/user.html"
 )

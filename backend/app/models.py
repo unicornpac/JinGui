@@ -105,6 +105,7 @@ class Document(Base):
     file_size = Column(Integer, comment="文件大小（字节）")
     parsed_content = Column(Text, comment="解析后的内容")
     status = Column(String(50), default="pending", comment="状态：pending, processing, completed, failed")
+    error_message = Column(Text, comment="解析失败原因（供管理员排查与重试）")
     upload_date = Column(DateTime(timezone=True), server_default=func.now())
     processed_at = Column(DateTime(timezone=True), comment="处理完成时间")
 

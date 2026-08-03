@@ -221,6 +221,46 @@
 | 2026-07-30 | P0-4 | 部署健康检查增加约 30 秒重试；Git 降级同步同时更新服务器安全脚本 | `server_deploy.sh`、`SERVER_DEPLOY_GUIDE.md` |
 | 2026-07-30 | P0-4 | 修复健康检查访问受保护 API 返回 401 的误报，改为检查公开 `/user` 页面 | `server_deploy.sh`、`SERVER_DEPLOY_GUIDE.md` |
 | 2026-07-31 | P0-1 | 修复公开首页请求管理接口导致密码弹窗；分离页面/API认证；补齐公开统计及大文件上传交互 | `dependencies.py`、`main.py`、`agent.py`、`documents.py`、`user.html`、`index.html`、`test_api_routes.py` |
+| 2026-07-31 | P3-6 | 新增 Showcase 展示页：Canvas水墨粒子背景、弹簧物理文字动效、破格实验性排版、磁性光标交互、全站Lucide图标；部署降级同步已包含该页面 | `static/showcase.html`、`app/main.py`（新增 `/showcase` 路由）、`server_deploy.sh` |
+| 2026-08-03 | P1-文档上传 | 文档解析失败保存错误原因；管理端可显示失败详情并安全重试，保留原始文件与既有数据 | `app/models.py`、`app/database.py`、`app/schemas.py`、`app/routers/documents.py`、`static/index.html` |
+
+---
+
+## 2026-07-31 开发日志：Showcase 展示页
+
+### 背景
+
+基于现有 4 个功能型页面，新增一个 Awwwards / FWA / CSSDA 水准的展示型页面，体现项目的设计品质和现代 Web 交互能力。
+
+### 设计理念
+
+- **墨韵·金石**：深炭黑底色 × 金铜点缀 × 朱砂红印章，将传统中医水墨美学转化为数字体验。
+- **浏览器即画布**：跳出传统网页布局限制，采用破格排版、非对称网格、大面积留白和裁切式文字处理。
+
+### 实现功能
+
+1. **Canvas 水墨粒子背景**：60 个有机漂移粒子，模拟墨滴在水中扩散的痕迹效果。
+2. **弹簧物理文字动效**：Hero 标题"病脉证并治"逐字 `cubic-bezier(.1,.8,.3,1)` 入场。
+3. **实验性排版**：
+   - 破格大字 `clamp(48px, 8vw, 110px)`，覆盖式 layering。
+   - Features 区块采用 `1.3fr 0.7fr 1fr` 三列非对称 broken grid。
+   - 四阶训练阶梯横向卡片流。
+4. **互动细节**：
+   - `crosshair` 光标 + 200px 光环 Aura 跟随。
+   - 磁吸元素收缩光环为 60px。
+   - CTA 按钮 hover 时背景滑入反转。
+   - 滚动驱动 Intersection Observer 渐进揭示。
+5. **图标系统**：全站 Lucide 图标（`scroll-text`、`brain`、`database`、`bot`、`zap`、`sparkles`、`award` 等），零 Emoji。
+6. **数据接入**：实时从 `/api/agent/public-stats` 拉取训练记录和平均评分；其他统计数字采用 easeOutExpo 缓动计数动画。
+
+### 路由
+
+- 新增 `GET /showcase` → `static/showcase.html`
+
+### 涉及文件
+
+- `backend/static/showcase.html`（新增，~930 行）
+- `backend/app/main.py`（新增 `/showcase` 路由）
 
 ---
 

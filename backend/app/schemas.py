@@ -113,6 +113,7 @@ class DocumentResponse(BaseModel):
     file_type: Optional[str] = None
     file_size: Optional[int] = None
     status: str
+    error_message: Optional[str] = None
     upload_date: datetime
     processed_at: Optional[datetime] = None
 

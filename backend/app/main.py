@@ -126,3 +126,13 @@ async def study_page():
     if study_path.exists():
         return FileResponse(study_path)
     return {"message": "学习页面不存在", "hint": "请检查 static/study.html"}
+
+
+@app.get("/showcase")
+async def showcase_page():
+    """金匮要略 Showcase 展示页"""
+    from fastapi.responses import FileResponse
+    showcase_path = STATIC_DIR / "showcase.html"
+    if showcase_path.exists():
+        return FileResponse(showcase_path)
+    return {"message": "Showcase 页面不存在", "hint": "请检查 static/showcase.html"}

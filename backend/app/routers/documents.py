@@ -40,6 +40,7 @@ def process_document(doc_id: int, file_path: str):
             return
         
         doc.status = "processing"
+        doc.error_message = None
         db.commit()
         
         # 解析文档
@@ -132,9 +133,12 @@ def process_document(doc_id: int, file_path: str):
     except Exception as e:
         import traceback
         traceback.print_exc()
+        db.rollback()
         doc = db.query(Document).filter(Document.id == doc_id).first()
         if doc:
             doc.status = "failed"
+            doc.error_message = str(e)[:1000]
+            doc.processed_at = datetime.now()
             db.commit()
         print(f"文档处理失败: {str(e)}")
     finally:
@@ -338,6 +342,31 @@ async def get_documents(
     """获取已上传文档列表"""
     documents = db.query(Document).offset(skip).limit(limit).all()
     return documents
+
+
+@router.post("/{doc_id}/retry", response_model=MessageResponse, summary="重试解析失败文档")
+async def retry_document(
+    doc_id: int,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    _admin: str = Depends(verify_admin),
+    _rl: None = Depends(limit_upload),
+):
+    """仅重试失败记录；保留原文件，不重新上传，也不会删除既有条文。"""
+    doc = db.query(Document).filter(Document.id == doc_id).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="文档不存在")
+    if doc.status != "failed":
+        raise HTTPException(status_code=409, detail="只有解析失败的文档可以重试")
+    if not doc.file_path or not os.path.isfile(doc.file_path):
+        raise HTTPException(status_code=404, detail="原始文件不存在，无法重试")
+
+    doc.status = "pending"
+    doc.error_message = None
+    doc.processed_at = None
+    db.commit()
+    background_tasks.add_task(process_document, doc.id, doc.file_path)
+    return MessageResponse(message=f"已开始重试解析：{doc.filename}", success=True)
 
 
 @router.get("/{doc_id}", response_model=DocumentResponse, summary="文档详情")
