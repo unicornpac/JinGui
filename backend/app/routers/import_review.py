@@ -317,3 +317,40 @@ async def edit_staging(
 
     db.commit()
     return {"message": f"已更新{'、'.join(changed)}", "success": True}
+
+
+@router.post("/batches/{batch_id}/texts", summary="新增暂存条文")
+async def create_staging(
+    batch_id: str,
+    article_number: int = Query(..., description="条号"),
+    content: str = Query(..., description="规范正文"),
+    chapter: str = Query(None, description="篇章名"),
+    raw_content: str = Query(None, description="原始文本"),
+    db: Session = Depends(get_db),
+    _admin: str = Depends(verify_admin),
+):
+    """在暂存区手动新增一条条文（用于补充解析遗漏的条文）"""
+    batch = db.query(ImportBatch).filter(ImportBatch.batch_id == batch_id).first()
+    if not batch:
+        raise HTTPException(status_code=404, detail="批次不存在")
+
+    book = "《金匮要略》"
+    if batch.source_file and "伤寒" in batch.source_file:
+        book = "《伤寒论》"
+
+    stg = ImportStaging(
+        batch_id=batch_id,
+        source_book=book,
+        chapter=chapter,
+        article_number=article_number,
+        order_index=article_number,
+        raw_content=raw_content or content,
+        content=content,
+        source_file=batch.source_file,
+        source_hash=batch.source_hash,
+        status="needs_review",
+    )
+    db.add(stg)
+    db.commit()
+    db.refresh(stg)
+    return {"message": f"已新增条号 {article_number}", "id": stg.id, "success": True}
