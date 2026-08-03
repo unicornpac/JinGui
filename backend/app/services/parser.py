@@ -456,6 +456,12 @@ class DocumentParser:
             return "《伤寒论》"
         if any(kw in combined for kw in ["金匮", "金匮要略"]):
             return "《金匮要略》"
+        # 通过篇章名模式推断：金匮章节标题（如"XX病脉证并治第X"）→ 金匮
+        if re.search(r'病脉证[并治]*[第]?[一二三四五六七八九十百廿卅]+', content[:5000]):
+            return "《金匮要略》"
+        # 伤寒论章节标题（辨太阳/阳明等病脉证并治）→ 伤寒
+        if re.search(r'辨(太阳|阳明|少阳|太阴|少阴|厥阴|霍乱)病脉证并治', content[:5000]):
+            return "《伤寒论》"
         return "《伤寒论》"
 
     # ── 新版提取入口 ──

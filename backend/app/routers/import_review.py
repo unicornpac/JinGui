@@ -210,10 +210,11 @@ async def publish_batch(
     published_count = 0
     skipped_count = 0
     for item in approved:
-        # 去重：相同条号+source_book 不重复添加
+        # 去重：相同 条号+来源书+篇章 不重复添加
         existing = db.query(ClassicText).filter(
             ClassicText.article_number == item.article_number,
             ClassicText.source_book == item.source_book,
+            ClassicText.chapter == item.chapter,
         ).first()
         if existing:
             # 更新已有记录
