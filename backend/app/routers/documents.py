@@ -284,6 +284,36 @@ async def upload_document(
     )
 
 
+@router.delete("/{doc_id}", response_model=MessageResponse, summary="删除文档")
+async def delete_document(
+    doc_id: int,
+    db: Session = Depends(get_db),
+    _admin: str = Depends(verify_admin),
+):
+    """删除文档及其关联的暂存批次"""
+    doc = db.query(Document).filter(Document.id == doc_id).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="文档不存在")
+
+    # 查找关联的导入批次并删除暂存记录
+    if doc.filename:
+        batches = db.query(ImportBatch).filter(ImportBatch.source_file == doc.filename).all()
+        for b in batches:
+            db.query(ImportStaging).filter(ImportStaging.batch_id == b.batch_id).delete()
+            db.delete(b)
+
+    # 删除文件
+    if doc.file_path and os.path.isfile(doc.file_path):
+        try:
+            os.unlink(doc.file_path)
+        except OSError:
+            pass
+
+    db.delete(doc)
+    db.commit()
+    return MessageResponse(message=f"已删除文档 {doc.filename}", success=True)
+
+
 @router.get("/", response_model=List[DocumentResponse], summary="文档列表")
 async def get_documents(
     skip: int = Query(0, ge=0, description="跳过条数"),
