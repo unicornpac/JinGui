@@ -76,6 +76,12 @@ def _migrate_columns():
             if col_name not in existing:
                 conn.execute(f"ALTER TABLE classic_texts ADD COLUMN {col_name} {col_type}")
                 print(f"[migrate] 已添加列 classic_texts.{col_name}")
+
+        cur = conn.execute("PRAGMA table_info(documents)")
+        document_columns = {row[1] for row in cur.fetchall()}
+        if "error_message" not in document_columns:
+            conn.execute("ALTER TABLE documents ADD COLUMN error_message TEXT")
+            print("[migrate] 已添加列 documents.error_message")
         conn.commit()
     finally:
         conn.close()

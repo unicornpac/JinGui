@@ -524,10 +524,22 @@ async function loadDocs() {
     const data = await (await fetch(`${API}/documents/?limit=50`)).json();
     document.getElementById('docList').innerHTML = data.length ? data.map(d =>
       `<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--hover);border-radius:8px;font-size:13px;">
-        <span>📄 ${d.filename} <span style="color:var(--muted);font-size:11px;">(${d.status})</span></span>
-        <span style="color:var(--muted);font-size:11px;">${(d.upload_date||'').substring(0,10)}</span>
+        <span title="${escHtml(d.error_message || '')}">📄 ${escHtml(d.filename)} <span style="color:var(--muted);font-size:11px;">(${d.status})</span>${d.error_message ? ' <span style="color:#d9534f;font-size:11px;">解析失败：' + escHtml(d.error_message) + '</span>' : ''}</span>
+        <span style="display:flex;align-items:center;gap:8px;"><span style="color:var(--muted);font-size:11px;">${(d.upload_date||'').substring(0,10)}</span>${d.status === 'failed' ? `<button class="btn" style="padding:4px 8px;font-size:11px;" onclick="retryDocument(${d.id})">重试</button>` : ''}</span>
       </div>`).join('') : '<div style="text-align:center;color:var(--muted);padding:20px;">暂无文档</div>';
   } catch(e) {}
+}
+
+async function retryDocument(id) {
+  try {
+    const resp = await fetch(`${API}/documents/${id}/retry`, {method:'POST'});
+    const result = await resp.json();
+    if (!resp.ok) throw new Error(result.detail || `重试失败（HTTP ${resp.status}）`);
+    toast(result.message || '已开始重试解析', 'success');
+    loadDocs();
+  } catch(e) {
+    toast(e.message || '重试失败', 'error');
+  }
 }
 
 // === AI分析 ===
