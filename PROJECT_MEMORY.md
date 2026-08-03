@@ -496,4 +496,12 @@ ADMIN_PASSWORD=请在服务器环境中配置
 
 - **测试**：新增 `tests/test_parser_regression.py` 16 个 golden sample 测试（覆盖 398 条号、正文清洁度、已知样本、章节归属、重复检测、质检闸门），全量 127/127 通过。
 
-- **涉及文件**：`parser.py`（重写）、`models.py`、`database.py`、`documents.py`（重写）、`import_validator.py`（新增）、`import_review.py`（新增）、`main.py`、`seed_texts.py`、`index.html`、`server_deploy.sh`、`SERVER_DEPLOY_GUIDE.md`、`test_parser_regression.py`（新增）、`PROJECT_MEMORY.md`
+- **涉及文件**：`parser.py`（重写）、`models.py`、`database.py`、`documents.py`（重写）、`import_validator.py`（新增）、`import_review.py`（新增）、`main.py`、`seed_texts.py`、`index.html`、`server_deploy.sh`、`SERVER_DEPLOY_GUIDE.md`、`test_parser_regression.py`（新增）、`backup_db.sh`（新增）、`PROJECT_MEMORY.md`
+
+- **备份与运维**：本机配置了 SSH 密钥（ed25519），新增 `backup_db.sh` 一键备份脚本。日常备份命令：
+  ```bash
+  # 本地拉取服务器数据库
+  scp root@39.106.218.131:/var/lib/jingui/tcm.db D:\jingui\backups\tcm-local.db
+  # 或使用脚本（同时拉取上传文件）
+  bash backup_db.sh
+  ```
