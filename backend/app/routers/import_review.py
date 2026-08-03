@@ -179,6 +179,26 @@ async def approve_all(
     return {"message": f"已批准 {updated} 条", "count": updated, "success": True}
 
 
+@router.delete("/batches/{batch_id}/texts/{staging_id}", summary="删除暂存条文")
+async def delete_staging(
+    batch_id: str,
+    staging_id: int,
+    db: Session = Depends(get_db),
+    _admin: str = Depends(verify_admin),
+):
+    """删除暂存区单条条文"""
+    item = db.query(ImportStaging).filter(
+        ImportStaging.id == staging_id,
+        ImportStaging.batch_id == batch_id,
+    ).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="暂存记录不存在")
+    num = item.article_number
+    db.delete(item)
+    db.commit()
+    return {"message": f"已删除条号 {num}", "success": True}
+
+
 @router.post("/batches/{batch_id}/publish", summary="发布到正式条文库")
 async def publish_batch(
     batch_id: str,
