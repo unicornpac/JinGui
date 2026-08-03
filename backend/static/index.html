@@ -129,6 +129,7 @@ tr:hover td { background:var(--hover); }
     <div class="tab" onclick="switchTab('texts')">📜 条文管理</div>
     <div class="tab" onclick="switchTab('upload')">📤 文档上传</div>
     <div class="tab" onclick="switchTab('analysis')">🔬 AI分析</div>
+    <div class="tab" onclick="switchTab('import')">📦 导入审核</div>
   </div>
 
   <!-- 训练记录 -->
@@ -216,6 +217,35 @@ tr:hover td { background:var(--hover); }
       <div class="form-row"><label>输入条文内容</label><textarea id="aInput" class="form-input" rows="4" placeholder="输入或粘贴条文内容…"></textarea></div>
       <button class="btn btn-primary" onclick="doAnalysis()">分析</button>
       <div id="aResult" style="margin-top:16px;"></div>
+    </div>
+  </div>
+
+  <!-- 导入审核 -->
+  <div class="panel" id="pImport">
+    <div class="card">
+      <h3 style="margin-bottom:12px;">📦 导入批次</h3>
+      <p style="font-size:13px;color:var(--muted);margin-bottom:12px;">文档上传后自动解析并暂存于此，审核通过后发布到正式条文库。</p>
+      <div class="filters">
+        <button class="btn btn-primary" onclick="loadBatches()">🔄 刷新</button>
+      </div>
+      <table><thead><tr><th>批次</th><th>来源文件</th><th>解析条数</th><th>唯一条号</th><th>状态</th><th>时间</th><th>操作</th></tr></thead>
+      <tbody id="batchTbody"><tr><td colspan="7" style="text-align:center;color:var(--muted);padding:30px;">加载中…</td></tr></tbody></table>
+    </div>
+
+    <!-- 批次详情（展开后显示） -->
+    <div class="card" id="batchDetail" style="display:none;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+        <h3 id="bdTitle">批次详情</h3>
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-primary btn-sm" onclick="approveAllBatch()">✅ 全部批准</button>
+          <button class="btn btn-primary btn-sm" onclick="publishBatch()">🚀 发布到条文库</button>
+          <button class="btn btn-del btn-sm" onclick="rejectBatch()">❌ 驳回批次</button>
+          <button class="btn btn-outline btn-sm" onclick="closeBatchDetail()">关闭</button>
+        </div>
+      </div>
+      <div id="bdReport" style="margin-bottom:12px;padding:12px;background:#faf7f0;border-radius:8px;font-size:13px;"></div>
+      <table><thead><tr><th>条号</th><th>章节</th><th>正文预览</th><th>版式标记</th><th>状态</th><th>问题</th><th>操作</th></tr></thead>
+      <tbody id="stagingTbody"></tbody></table>
     </div>
   </div>
 </div>
@@ -566,6 +596,118 @@ function toast(msg, type) {
   document.body.appendChild(t); setTimeout(() => t.remove(), 2500);
 }
 function escapeHtml(s) { if (!s) return ''; const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+// === 导入审核 ===
+let currentBatchId = '';
+
+async function loadBatches() {
+  try {
+    const data = await (await fetch(`${API}/import/batches`)).json();
+    if (!Array.isArray(data)) { document.getElementById('batchTbody').innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:30px;">无导入批次</td></tr>'; return; }
+    let h = '';
+    data.forEach(b => {
+      const st = b.status === 'published' ? 'bg-completed' : b.status === 'rejected' ? 'bg-advanced' : 'bg-intermediate';
+      const stLabel = {pending:'待审核',needs_review:'需审核',published:'已发布',rejected:'已驳回'}[b.status] || b.status;
+      h += `<tr>
+        <td><code>${b.batch_id}</code></td>
+        <td>${escapeHtml(b.source_file||'')}</td>
+        <td>${b.total_articles}</td>
+        <td>${b.unique_numbers}</td>
+        <td><span class="badge ${st}">${stLabel}</span></td>
+        <td>${(b.created_at||'').slice(0,16)}</td>
+        <td><button class="btn btn-view btn-sm" onclick="viewBatch('${b.batch_id}')">查看</button></td>
+      </tr>`;
+    });
+    document.getElementById('batchTbody').innerHTML = h || '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:30px;">无导入批次</td></tr>';
+  } catch(e) { toast('加载批次失败: '+e.message, 'error'); }
+}
+
+async function viewBatch(batchId) {
+  currentBatchId = batchId;
+  try {
+    const [detail, texts] = await Promise.all([
+      fetch(`${API}/import/batches/${batchId}`).then(r=>r.json()),
+      fetch(`${API}/import/batches/${batchId}/texts?limit=1000`).then(r=>r.json())
+    ]);
+    document.getElementById('bdTitle').textContent = `批次 ${batchId} — ${detail.source_file||''}`;
+    const qr = detail.quality_report || {};
+    document.getElementById('bdReport').innerHTML = `
+      <b>质检报告</b><br>
+      唯一条号：${qr.actual_unique||'?'} / 预期：${qr.expected_count||'?'} &nbsp;|&nbsp;
+      缺失：${(qr.missing_numbers||[]).length ? qr.missing_numbers.slice(0,10).join(',') : '无'} &nbsp;|&nbsp;
+      重复：${Object.keys(qr.duplicates||{}).join(',')||'无'}<br>
+      问题：${(qr.issues||[]).join('；')||'无'}
+    `;
+    let h = '';
+    (texts.items||[]).forEach(t => {
+      const stCls = t.status==='approved'?'bg-active':t.status==='rejected'?'bg-advanced':'bg-beginner';
+      h += `<tr>
+        <td>${t.article_number||'?'}</td>
+        <td style="font-size:12px;">${escapeHtml((t.chapter||'').slice(0,20))}</td>
+        <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(t.content||'').slice(0,60)}</td>
+        <td>${t.layout_marker||''}</td>
+        <td><span class="badge ${stCls}">${t.status}</span></td>
+        <td style="font-size:11px;color:var(--muted);">${t.issue||''}</td>
+        <td>
+          <button class="btn btn-view btn-sm" onclick="approveOne(${t.id})" ${t.status==='approved'?'disabled':''}>批准</button>
+          <button class="btn btn-del btn-sm" onclick="rejectOne(${t.id})" ${t.status==='rejected'?'disabled':''}>驳回</button>
+        </td>
+      </tr>`;
+    });
+    document.getElementById('stagingTbody').innerHTML = h || '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:30px;">无暂存条文</td></tr>';
+    document.getElementById('batchDetail').style.display = 'block';
+    document.getElementById('batchDetail').scrollIntoView({behavior:'smooth'});
+  } catch(e) { toast('加载批次详情失败: '+e.message, 'error'); }
+}
+
+function closeBatchDetail() { document.getElementById('batchDetail').style.display = 'none'; currentBatchId = ''; }
+
+async function approveOne(id) {
+  try {
+    const r = await (await fetch(`${API}/import/batches/${currentBatchId}/approve/${id}`, {method:'POST'})).json();
+    toast(r.message||'已批准', 'success');
+    viewBatch(currentBatchId);
+  } catch(e) { toast('批准失败: '+e.message, 'error'); }
+}
+
+async function rejectOne(id) {
+  const reason = prompt('驳回原因（可选）：');
+  try {
+    const r = await (await fetch(`${API}/import/batches/${currentBatchId}/reject/${id}?reason=${encodeURIComponent(reason||'')}`, {method:'POST'})).json();
+    toast(r.message||'已驳回', 'success');
+    viewBatch(currentBatchId);
+  } catch(e) { toast('驳回失败: '+e.message, 'error'); }
+}
+
+async function approveAllBatch() {
+  if (!confirm('确定批准本批次所有待审核条文？')) return;
+  try {
+    const r = await (await fetch(`${API}/import/batches/${currentBatchId}/approve-all`, {method:'POST'})).json();
+    toast(r.message, 'success');
+    viewBatch(currentBatchId);
+  } catch(e) { toast('批准失败: '+e.message, 'error'); }
+}
+
+async function publishBatch() {
+  if (!confirm('确定将已批准的条文发布到正式条文库？此操作不可撤销。')) return;
+  try {
+    const r = await (await fetch(`${API}/import/batches/${currentBatchId}/publish`, {method:'POST'})).json();
+    toast(r.message, 'success');
+    closeBatchDetail();
+    loadBatches();
+  } catch(e) { toast('发布失败: '+e.message, 'error'); }
+}
+
+async function rejectBatch() {
+  const reason = prompt('驳回原因（可选）：');
+  if (!confirm('确定驳回整个批次？未发布的条文将不会被导入。')) return;
+  try {
+    const r = await (await fetch(`${API}/import/batches/${currentBatchId}/reject-batch?reason=${encodeURIComponent(reason||'')}`, {method:'POST'})).json();
+    toast(r.message, 'success');
+    closeBatchDetail();
+    loadBatches();
+  } catch(e) { toast('驳回失败: '+e.message, 'error'); }
+}
 
 // 初始化
 loadTrain(); loadDocs(); loadAiStatus();
