@@ -285,6 +285,21 @@ tr:hover td { background:var(--hover); }
   </div>
 </div>
 
+<!-- 编辑暂存条文弹窗 -->
+<div class="modal-overlay" id="stagingEditModal">
+  <div class="modal">
+    <h3>编辑暂存条文</h3>
+    <div class="form-row"><label>条号</label><input id="seNumber" class="form-input" type="number"></div>
+    <div class="form-row"><label>篇章</label><input id="seChapter" class="form-input"></div>
+    <div class="form-row"><label>规范正文（展示用）</label><textarea id="seContent" class="form-input" rows="5"></textarea></div>
+    <div class="form-row"><label>原始文本（追溯用）</label><textarea id="seRaw" class="form-input" rows="3"></textarea></div>
+    <div style="margin-top:14px;display:flex;justify-content:flex-end;gap:8px;">
+      <button class="btn btn-del btn-sm" onclick="document.getElementById('stagingEditModal').classList.remove('show')">取消</button>
+      <button class="btn btn-primary btn-sm" onclick="saveStagingEdit()">保存</button>
+    </div>
+  </div>
+</div>
+
 <script>
 const API = '/api'; let editingCaseId = null, editingTextId = null;
 
@@ -570,6 +585,7 @@ function escapeHtml(s) { if (!s) return ''; const d = document.createElement('di
 
 // === 导入审核 ===
 let currentBatchId = '';
+let stagingCache = {};
 
 async function loadBatches() {
   try {
@@ -612,14 +628,16 @@ async function viewBatch(batchId) {
     let h = '';
     (texts.items||[]).forEach(t => {
       const stCls = t.status==='approved'?'bg-active':t.status==='rejected'?'bg-advanced':'bg-beginner';
+      stagingCache[t.id] = t;
       h += `<tr>
         <td>${t.article_number||'?'}</td>
         <td style="font-size:12px;">${escapeHtml((t.chapter||'').slice(0,20))}</td>
-        <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(t.content||'').slice(0,60)}</td>
+        <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(t.content||'').slice(0,50)}</td>
         <td>${t.layout_marker||''}</td>
         <td><span class="badge ${stCls}">${t.status}</span></td>
         <td style="font-size:11px;color:var(--muted);">${t.issue||''}</td>
-        <td>
+        <td style="white-space:nowrap;">
+          <button class="btn btn-view btn-sm" onclick="editStaging(${t.id})">编辑</button>
           <button class="btn btn-view btn-sm" onclick="approveOne(${t.id})" ${t.status==='approved'?'disabled':''}>批准</button>
           <button class="btn btn-del btn-sm" onclick="rejectOne(${t.id})" ${t.status==='rejected'?'disabled':''}>驳回</button>
         </td>
@@ -678,6 +696,37 @@ async function rejectBatch() {
     closeBatchDetail();
     loadBatches();
   } catch(e) { toast('驳回失败: '+e.message, 'error'); }
+}
+
+let editingStagingId = null;
+function editStaging(id) {
+  const t = stagingCache[id];
+  if (!t) return;
+  editingStagingId = id;
+  document.getElementById('seNumber').value = t.article_number || '';
+  document.getElementById('seChapter').value = t.chapter || '';
+  document.getElementById('seContent').value = t.content || '';
+  document.getElementById('seRaw').value = t.raw_content || '';
+  document.getElementById('stagingEditModal').classList.add('show');
+}
+
+async function saveStagingEdit() {
+  const id = editingStagingId;
+  const content = document.getElementById('seContent').value.trim();
+  const raw = document.getElementById('seRaw').value.trim();
+  const num = parseInt(document.getElementById('seNumber').value) || null;
+  const chapter = document.getElementById('seChapter').value.trim() || null;
+  try {
+    const params = new URLSearchParams();
+    if (content) params.set('content', content);
+    if (raw) params.set('raw_content', raw);
+    if (num) params.set('article_number', num);
+    if (chapter) params.set('chapter', chapter);
+    const r = await (await fetch(`${API}/import/batches/${currentBatchId}/edit/${id}?${params}`, {method:'PUT'})).json();
+    document.getElementById('stagingEditModal').classList.remove('show');
+    toast(r.message || '已保存', 'success');
+    viewBatch(currentBatchId);
+  } catch(e) { toast('保存失败: '+e.message, 'error'); }
 }
 
 // 初始化
