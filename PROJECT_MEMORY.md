@@ -478,3 +478,22 @@ ADMIN_PASSWORD=请在服务器环境中配置
 - 前端入口：`study.html`（按病证学习 / 按篇章浏览 / 全文搜索 三个视图）+ `index.html`（管理端表格 CRUD）。
 - 互联网校验：`TextVerifier` 调用 LLM 逐条判断条文篇章归属和编号是否正确，支持自动修正。
 - 当前数据：152 条《伤寒论》条文（10篇章分层），《金匮要略》25篇框架就绪待导入。
+
+### 2026-08-03 会话记录
+
+**条文导入系统全面重构**
+
+- **问题**：原 `parser.py` 以"第X条"为边界，无法处理句末条号 `（9）` 格式和中文数字 `（一）` 格式，且罗马数字 `ⅠⅡⅢ` 被当作正文。
+- **重构内容**：
+  1. **`parser.py` 全新切分算法**：句末条号收束切分 `_split_by_sentence_end_number()`，缓冲区累积 + 同号合并（支持多段条文），支持阿拉伯数字和中文数字（一~十七），逐行清除罗马数字版式标记。
+  2. **raw_content / content 双字段**：`raw_content` 保留原样（含罗马数字、条号标记），`content` 为规范展示正文。`ClassicText` 新增 7 个溯源字段（`raw_content`、`layout_marker`、`source_file`、`source_hash`、`source_offset`、`source_edition`、`import_batch_id`）。
+  3. **质量闸门**：新增 `services/import_validator.py`，导入前校验 398 条号完整性，重复号（如 358）进"待人工裁决"清单，不静默跳过。
+  4. **暂存→审核→发布流程**：新增 `ImportBatch` / `ImportStaging` 两张表，上传文档不再直接写入 `classic_texts`，而是经暂存区由管理端逐条批准后发布。`routers/import_review.py` 提供 10 个审核 API。
+  5. **管理端导入审核面板**：新增 `📦 导入审核` 标签页，支持批次列表、质检报告查看、逐条批准/驳回/编辑/删除、一键发布、手动新增条文。
+  6. **`server_deploy.sh` FILES 数组补全**：从 15 个文件扩展到 25 个，覆盖所有路由、服务、静态文件，Git 同步失败降级时不会漏文件。
+  7. **金匮要略支持**：中文数字条号解析，`_detect_source_book` 通过篇章标题模式推断来源书，`publish_batch` 去重查询增加 `chapter` 字段避免不同章同号覆盖。
+  8. **其他功能**：文档上传列表和审核界面增加删除功能；条文管理表格增加 Excel 式列头点击排序（ID/来源/章节/条号）；管理端移除 AI 分析标签（AI 解读已在 study.html）；修复 look-behind 正则报错；修复 `escHtml` → `escapeHtml` 拼写错误。
+
+- **测试**：新增 `tests/test_parser_regression.py` 16 个 golden sample 测试（覆盖 398 条号、正文清洁度、已知样本、章节归属、重复检测、质检闸门），全量 127/127 通过。
+
+- **涉及文件**：`parser.py`（重写）、`models.py`、`database.py`、`documents.py`（重写）、`import_validator.py`（新增）、`import_review.py`（新增）、`main.py`、`seed_texts.py`、`index.html`、`server_deploy.sh`、`SERVER_DEPLOY_GUIDE.md`、`test_parser_regression.py`（新增）、`PROJECT_MEMORY.md`
