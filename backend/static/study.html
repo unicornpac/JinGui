@@ -55,23 +55,30 @@ body{font-family:-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;backgr
 .empty{text-align:center;color:#b0a090;padding:40px}
 .loading-text{color:#b0a090;font-size:13px}
 </style>
+<link rel="stylesheet" href="/static/jingui-theme.css?v=20260804-2">
+<script src="/static/jingui-motion.js?v=20260804-2" defer></script>
 </head>
-<body>
+<body class="theme-study">
 
 <div class="header">
-  <h1>📖 条文学习</h1>
+  <a class="brand-home" href="/newcase" aria-label="返回金匮要略首页"><h1>经典条文研习</h1></a>
   <div class="nav">
     <a href="/">管理端</a>
-    <a href="/user">首页</a>
-    <a href="/train">开始训练</a>
+    <a href="/newcase">首页</a>
+    <a href="/train?ui=20260804-2">开始训练</a>
   </div>
 </div>
 
 <div class="container">
+  <div class="library-intro">
+    <div class="library-overline">CLASSICS ARCHIVE · 金匮研习</div>
+    <h2>以病证为索引，回到经典原文</h2>
+    <p>在篇章、病证与关键词之间切换阅读路径，让每一次检索都回到临床问题。</p>
+  </div>
   <div class="tabs" id="mainTabs">
-    <div class="tab active" onclick="showPanel('disease')">🩺 按病证学习</div>
-    <div class="tab" onclick="showPanel('chapters')">📋 按篇章浏览</div>
-    <div class="tab" onclick="showPanel('search')">🔍 全文搜索</div>
+    <div class="tab active" onclick="showPanel('disease')">按病证学习</div>
+    <div class="tab" onclick="showPanel('chapters')">按篇章浏览</div>
+    <div class="tab" onclick="showPanel('search')">全文搜索</div>
   </div>
 
   <!-- 按病证学习 -->
@@ -160,22 +167,22 @@ function renderDiseaseGrid() {
   const jingui = DISEASES.slice(0, 8);
   const shanghan = DISEASES.slice(8);
   
-  const renderGroup = (title, list, icon) => `
-    <div style="grid-column:1/-1;font-size:15px;font-weight:700;color:var(--primary);margin-top:8px;padding-bottom:4px;border-bottom:2px solid #e0d5c0;">
-      ${icon} ${title} <span style="font-weight:400;font-size:12px;color:var(--muted);">（${list.reduce((s,d)=>s+(counts[d.id]||0),0)} 条）</span>
+  const renderGroup = (title, list, index) => `
+    <div class="library-group-title">
+      <span>${index}</span>${title} <small>（${list.reduce((s,d)=>s+(counts[d.id]||0),0)} 条）</small>
     </div>
     ${list.map(d => `
       <div class="disease-card" onclick="showDisease('${d.id}')">
         <h3>${d.name}</h3>
         <div class="desc">${d.desc.substring(0,80)}...</div>
-        <div class="count">📄 相关条文：${counts[d.id]} 条</div>
+        <div class="count">相关条文：${counts[d.id]} 条</div>
       </div>
     `).join('')}
   `;
   
   document.getElementById('diseaseGrid').innerHTML = 
-    renderGroup('金匮要略', jingui, '📜') +
-    renderGroup('伤寒论', shanghan, '📖');
+    renderGroup('金匮要略', jingui, '01') +
+    renderGroup('伤寒论', shanghan, '02');
 }
 
 function showDisease(id) {
@@ -185,7 +192,7 @@ function showDisease(id) {
   document.getElementById('diseaseGrid').style.display = 'none';
   document.getElementById('backBtn').style.display = 'inline-block';
   document.getElementById('diseaseDetail').style.display = 'block';
-  document.getElementById('detailTitle').textContent = '🩺 ' + d.name;
+  document.getElementById('detailTitle').textContent = d.name;
   document.getElementById('detailDesc').textContent = d.desc;
   
   const texts = allTexts.filter(t => d.keys.some(k => (t.content||'').includes(k) || (t.keywords||'').includes(k)));
@@ -196,7 +203,7 @@ function showDisease(id) {
       <div class="hdr"><span class="src-badge">${esc(t.source_book)}</span> ${t.chapter?esc(t.chapter):''} <span style="color:#b0a090;font-size:11px;margin-left:auto">ID:${t.id}</span></div>
       <div class="content">${esc(t.content)}</div>
       ${t.keywords ? `<div style="color:#8b5a2b;font-size:12px;margin-top:4px;">关键词：${esc(t.keywords)}</div>` : ''}
-      <button class="ai-btn" onclick="aiExplain(event,${t.id},${i},'${id}')">🤖 AI 解读</button>
+      <button class="ai-btn" onclick="aiExplain(event,${t.id},${i},'${id}')">AI 解读</button>
       <div class="ai-result" id="aiRes${id}${i}"></div>
     </div>
   `).join('');

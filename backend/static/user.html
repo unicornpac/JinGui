@@ -85,43 +85,52 @@ body {
 .result-item .meta { color:#8a7a6a; font-size:12px; margin-bottom:4px; }
 .result-item .source { color:#8b5a2b; font-weight:600; }
 </style>
+<link rel="stylesheet" href="/static/jingui-theme.css?v=20260804-2">
+<script src="/static/jingui-motion.js?v=20260804-2" defer></script>
 </head>
-<body>
+<body class="theme-user">
 
 <div class="header">
-  <h1>📜 《金匮要略》临床思辨训练系统</h1>
+  <a class="brand-home" href="/newcase" aria-label="返回金匮要略首页"><h1>《金匮要略》临床思辨训练系统</h1></a>
   <div class="nav">
     <a href="/">管理端</a>
-    <a href="/user" class="active">首页</a>
-    <a href="/train">开始训练</a>
+    <a href="/newcase">首页</a>
+    <a href="/portal" class="active">功能门户</a>
+    <a href="/train?ui=20260804-2">开始训练</a>
   </div>
 </div>
 
 <div class="container">
   <!-- Hero -->
   <div class="hero">
-    <h2>🩺 临床思辨 · 从经典到临床</h2>
-    <p>运用"病脉证并治"思维框架，与 AI 模拟患者进行多轮交互对话，<br>在辨病→平脉→析证→定治的训练中逐步提升临床思辨能力。</p>
-    <a href="/train" class="hero-btn">🚀 开始临床思辨训练</a>
+    <div class="hero-copy">
+      <h2>临床思辨 · 从经典到临床</h2>
+      <p>运用"病脉证并治"思维框架，与 AI 模拟患者进行多轮交互对话，<br>在辨病→平脉→析证→定治的训练中逐步提升临床思辨能力。</p>
+      <a href="/train?ui=20260804-2" class="hero-btn">开始临床思辨训练 →</a>
+    </div>
+    <div class="hero-compass" aria-hidden="true">
+      <b>辨</b>
+      <span>辨病</span><span>平脉</span><span>析证</span><span>定治</span>
+    </div>
   </div>
 
   <!-- 三大功能入口 -->
-  <div class="grid2">
+  <div class="grid2 portal-actions">
     <div class="card">
-      <h3>📖 条文学习</h3>
+      <h3>条文学习</h3>
       <p>浏览《伤寒论》《金匮要略》等经典条文，支持按来源和关键词搜索。训练前温习，事半功倍。</p>
       <a href="/study" class="btn">进入条文学习 →</a>
     </div>
     <div class="card">
-      <h3>🧠 临床思辨训练</h3>
+      <h3>临床思辨训练</h3>
       <p>三阶梯交互训练：初级辨病 → 中级平脉析证 → 高级定治决策。与 AI 模拟患者多轮对话。</p>
-      <a href="/train" class="btn">进入训练 →</a>
+      <a href="/train?ui=20260804-2" class="btn">进入训练 →</a>
     </div>
   </div>
 
   <!-- 数据概览 -->
-  <div class="quick-section">
-    <h3>📊 系统数据概览</h3>
+  <div class="quick-section stats-section">
+    <h3>系统数据概览</h3>
     <div class="quick-grid">
       <div class="quick-card"><div class="num" id="qTexts">-</div><div class="lbl">经典条文</div></div>
       <div class="quick-card"><div class="num" id="qCases">-</div><div class="lbl">训练病案</div></div>
@@ -131,8 +140,8 @@ body {
   </div>
 
   <!-- 条文快速浏览 -->
-  <div class="quick-section">
-    <h3>📖 条文快速浏览</h3>
+  <div class="quick-section browse-section">
+    <h3>条文快速浏览</h3>
     <div class="search-bar">
       <input id="searchInput" placeholder="搜索条文内容、关键词或来源经典（如伤寒、金匮）…" onkeydown="if(event.key==='Enter')searchTexts()">
       <button onclick="searchTexts()">搜索</button>

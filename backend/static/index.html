@@ -106,19 +106,26 @@ tr:hover td { background:var(--hover); }
 .toast.error { background:#c0392b; }
 @keyframes fadeIn { from{opacity:0;transform:translateY(8px);} to{opacity:1;transform:translateY(0);} }
 </style>
+<link rel="stylesheet" href="/static/jingui-theme.css?v=20260804-2">
+<script src="/static/jingui-motion.js?v=20260804-2" defer></script>
 </head>
-<body>
+<body class="theme-admin">
 
 <div class="header">
-  <h1>📜 教师管理端</h1>
+  <a class="brand-home" href="/newcase" aria-label="返回金匮要略首页"><h1>教师管理端</h1></a>
   <div class="nav">
     <a href="/" class="active">管理端</a>
-    <a href="/user">首页</a>
-    <a href="/train">开始训练</a>
+    <a href="/newcase">首页</a>
+    <a href="/train?ui=20260804-2">开始训练</a>
   </div>
 </div>
 
 <div class="container">
+  <div class="console-intro">
+    <div>TEACHING OPERATIONS · 金匮教研</div>
+    <h2>教学运行总览</h2>
+    <p>在同一工作台中查看训练轨迹、维护病案与条文，并完成导入审核。</p>
+  </div>
   <div class="stats">
     <div class="stat-card"><div class="n" id="sTotal">0</div><div class="l">总训练次数</div></div>
     <div class="stat-card"><div class="n" id="sActive">0</div><div class="l">进行中</div></div>
@@ -127,11 +134,11 @@ tr:hover td { background:var(--hover); }
   </div>
 
   <div class="tabs">
-    <div class="tab active" onclick="switchTab('train')">🧠 训练记录</div>
-    <div class="tab" onclick="switchTab('cases')">📋 病案管理</div>
-    <div class="tab" onclick="switchTab('texts')">📜 条文管理</div>
-    <div class="tab" onclick="switchTab('upload')">📤 文档上传</div>
-    <div class="tab" onclick="switchTab('import')">📦 导入审核</div>
+    <div class="tab active" onclick="switchTab('train')">训练记录</div>
+    <div class="tab" onclick="switchTab('cases')">病案管理</div>
+    <div class="tab" onclick="switchTab('texts')">条文管理</div>
+    <div class="tab" onclick="switchTab('upload')">文档上传</div>
+    <div class="tab" onclick="switchTab('import')">导入审核</div>
   </div>
 
   <!-- 训练记录 -->
@@ -140,7 +147,7 @@ tr:hover td { background:var(--hover); }
       <div class="filters">
         <select id="fDiff" onchange="loadTrain()"><option value="">全部难度</option><option value="初级">初级</option><option value="中级">中级</option><option value="高级">高级</option></select>
         <select id="fStatus" onchange="loadTrain()"><option value="">全部状态</option><option value="active">训练中</option><option value="completed">已完成</option></select>
-        <button class="btn btn-primary" onclick="loadTrain()">🔄 刷新</button>
+        <button class="btn btn-primary" onclick="loadTrain()">刷新</button>
       </div>
       <table><thead><tr><th>ID</th><th>学生</th><th>难度</th><th>病案</th><th>状态</th><th>轮数</th><th>评分</th><th>时间</th><th>操作</th></tr></thead>
       <tbody id="trainTbody"><tr><td colspan="9" style="text-align:center;color:var(--muted);padding:30px;">加载中…</td></tr></tbody></table>
@@ -164,7 +171,7 @@ tr:hover td { background:var(--hover); }
     <div class="card">
       <div class="filters">
         <select id="cfDiff" onchange="loadCases()"><option value="">全部难度</option><option value="初级">初级</option><option value="中级">中级</option><option value="高级">高级</option></select>
-        <button class="btn btn-primary" onclick="loadCases()">🔄 刷新</button>
+        <button class="btn btn-primary" onclick="loadCases()">刷新</button>
       </div>
       <table><thead><tr><th>ID</th><th>标题</th><th>难度</th><th>诊断</th><th>方剂</th><th>操作</th></tr></thead>
       <tbody id="caseTbody"><tr><td colspan="6" style="text-align:center;color:var(--muted);padding:30px;">加载中…</td></tr></tbody></table>
@@ -184,8 +191,8 @@ tr:hover td { background:var(--hover); }
     <div class="card">
       <div class="filters">
         <select id="tfSource" onchange="loadTexts()"><option value="">全部经典</option><option value="《伤寒论》">《伤寒论》</option><option value="《金匮要略》">《金匮要略》</option></select>
-        <button class="btn btn-primary" onclick="loadTexts()">🔄 刷新</button>
-        <button class="btn btn-del" onclick="batchDeleteTexts()" style="margin-left:auto;">🗑 批量删除选中</button>
+        <button class="btn btn-primary" onclick="loadTexts()">刷新</button>
+        <button class="btn btn-del" onclick="batchDeleteTexts()" style="margin-left:auto;">批量删除选中</button>
       </div>
       <table><thead><tr><th><input type="checkbox" onclick="toggleAllTexts(this)" title="全选"></th><th class="sortable" onclick="sortTexts('id')">ID <span id="sIconId"></span></th><th class="sortable" onclick="sortTexts('source_book')">来源 <span id="sIconSource"></span></th><th class="sortable" onclick="sortTexts('chapter')">章节 <span id="sIconChapter"></span></th><th class="sortable" onclick="sortTexts('article_number')">条号 <span id="sIconNum"></span></th><th>条文内容</th><th>关键词</th><th>操作</th></tr></thead>
       <tbody id="textTbody"><tr><td colspan="8" style="text-align:center;color:var(--muted);padding:30px;">加载中…</td></tr></tbody></table>
@@ -196,7 +203,7 @@ tr:hover td { background:var(--hover); }
   <div class="panel" id="pUpload">
     <div class="card">
       <div class="upload-zone" onclick="document.getElementById('fileInp').click()">
-        <div class="icon">📄</div><p style="font-size:15px;">点击上传文档</p>
+        <div class="icon" aria-hidden="true">文</div><p style="font-size:15px;">点击上传文档</p>
         <p style="font-size:12px;color:var(--muted);margin-top:4px;">PDF / Word / Excel / TXT，自动解析条文和病案</p>
       </div>
       <input type="file" id="fileInp" style="display:none" accept=".pdf,.docx,.doc,.xlsx,.xls,.txt" onchange="uploadFile(this)">
@@ -215,10 +222,10 @@ tr:hover td { background:var(--hover); }
   <!-- 导入审核 -->
   <div class="panel" id="pImport">
     <div class="card">
-      <h3 style="margin-bottom:12px;">📦 导入批次</h3>
+      <h3 style="margin-bottom:12px;">导入批次</h3>
       <p style="font-size:13px;color:var(--muted);margin-bottom:12px;">文档上传后自动解析并暂存于此，审核通过后发布到正式条文库。</p>
       <div class="filters">
-        <button class="btn btn-primary" onclick="loadBatches()">🔄 刷新</button>
+        <button class="btn btn-primary" onclick="loadBatches()">刷新</button>
       </div>
       <table><thead><tr><th>批次</th><th>来源文件</th><th>解析条数</th><th>唯一条号</th><th>状态</th><th>时间</th><th>操作</th></tr></thead>
       <tbody id="batchTbody"><tr><td colspan="7" style="text-align:center;color:var(--muted);padding:30px;">加载中…</td></tr></tbody></table>
@@ -229,10 +236,10 @@ tr:hover td { background:var(--hover); }
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
         <h3 id="bdTitle">批次详情</h3>
         <div style="display:flex;gap:8px;">
-          <button class="btn btn-primary btn-sm" onclick="newStaging()">➕ 新增条文</button>
-          <button class="btn btn-primary btn-sm" onclick="approveAllBatch()">✅ 全部批准</button>
-          <button class="btn btn-primary btn-sm" onclick="publishBatch()">🚀 发布到条文库</button>
-          <button class="btn btn-del btn-sm" onclick="rejectBatch()">❌ 驳回批次</button>
+          <button class="btn btn-primary btn-sm" onclick="newStaging()">新增条文</button>
+          <button class="btn btn-primary btn-sm" onclick="approveAllBatch()">全部批准</button>
+          <button class="btn btn-primary btn-sm" onclick="publishBatch()">发布到条文库</button>
+          <button class="btn btn-del btn-sm" onclick="rejectBatch()">驳回批次</button>
           <button class="btn btn-outline btn-sm" onclick="closeBatchDetail()">关闭</button>
         </div>
       </div>
@@ -246,7 +253,7 @@ tr:hover td { background:var(--hover); }
 <!-- 会话详情弹窗 -->
 <div class="modal-overlay" id="detailModal">
   <div class="modal">
-    <h3>📋 训练详情回放</h3>
+    <h3>训练详情回放</h3>
     <div id="dInfo" style="margin-bottom:14px;font-size:14px;color:var(--muted);"></div>
     <div class="chat-replay" id="dChat"></div>
     <div style="margin-top:16px;text-align:right;">
@@ -600,7 +607,7 @@ async function loadDocs() {
     const data = await (await fetch(`${API}/documents/?limit=50`)).json();
     document.getElementById('docList').innerHTML = data.length ? data.map(d =>
       `<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--hover);border-radius:8px;font-size:13px;">
-        <span title="${escapeHtml(d.error_message || '')}">📄 ${escapeHtml(d.filename)} <span style="color:var(--muted);font-size:11px;">(${d.status})</span>${d.error_message ? ' <span style="color:#d9534f;font-size:11px;">解析失败：' + escapeHtml(d.error_message) + '</span>' : ''}</span>
+        <span title="${escapeHtml(d.error_message || '')}">${escapeHtml(d.filename)} <span style="color:var(--muted);font-size:11px;">(${d.status})</span>${d.error_message ? ' <span style="color:#d9534f;font-size:11px;">解析失败：' + escapeHtml(d.error_message) + '</span>' : ''}</span>
         <span style="display:flex;align-items:center;gap:8px;"><span style="color:var(--muted);font-size:11px;">${(d.upload_date||'').substring(0,10)}</span>
         ${d.status === 'failed' ? `<button class="btn" style="padding:4px 8px;font-size:11px;" onclick="retryDocument(${d.id})">重试</button>` : ''}
         <button class="btn btn-del" style="padding:4px 8px;font-size:11px;" onclick="deleteDocument(${d.id})">删除</button></span>

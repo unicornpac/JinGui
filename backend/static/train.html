@@ -153,34 +153,37 @@ body {
 .loading .dots span:nth-child(3) { animation-delay:.4s; }
 @keyframes bounce { 0%,80%,100% { transform:translateY(0); } 40% { transform:translateY(-6px); } }
 </style>
+<link rel="stylesheet" href="/static/jingui-theme.css?v=20260804-2">
+<script src="/static/jingui-motion.js?v=20260804-2" defer></script>
 </head>
-<body>
+<body class="theme-train">
 
 <div class="header">
-  <h1>📜 《金匮要略》临床思辨训练</h1>
+  <a class="brand-home" href="/newcase" aria-label="返回金匮要略首页"><h1>《金匮要略》临床思辨训练</h1></a>
   <div class="nav">
     <a href="/">管理端</a>
-    <a href="/user">首页</a>
-    <a href="/train" class="active">开始训练</a>
+    <a href="/newcase">首页</a>
+    <a href="/train?ui=20260804-2" class="active">开始训练</a>
   </div>
 </div>
 
 <div class="main">
   <!-- 侧栏 -->
   <div class="sidebar">
+    <div class="rail-id">CASE LAB · 临床训练舱</div>
     <div class="section">
-      <h3>🎯 选择训练难度</h3>
+      <h3>选择训练难度</h3>
       <div class="diff-btns" id="diffBtns">
         <div class="diff-btn" data-level="初级" onclick="selectDiff('初级')">
-          <span class="label">⭐ 初级 · 辨病与主证识别</span>
+          <span class="label">初级 · 辨病与主证识别</span>
           <span class="desc">典型条文对应，症状信息提取和基础辨病</span>
         </div>
         <div class="diff-btn" data-level="中级" onclick="selectDiff('中级')">
-          <span class="label">⭐⭐ 中级 · 平脉与析证</span>
+          <span class="label">中级 · 平脉与析证</span>
           <span class="desc">相似方证鉴别，脉象变化和兼夹证分析</span>
         </div>
         <div class="diff-btn" data-level="高级" onclick="selectDiff('高级')">
-          <span class="label">⭐⭐⭐ 高级 · 定治与整体决策</span>
+          <span class="label">高级 · 定治与整体决策</span>
           <span class="desc">复杂非典型病案，矛盾信息和传变</span>
         </div>
       </div>
@@ -191,7 +194,7 @@ body {
     </div>
 
     <div class="section" id="sessionInfo" style="display:none">
-      <h3>📋 训练信息</h3>
+      <h3>训练信息</h3>
       <div style="font-size:13px; color:#8a7a6a; line-height:1.8">
         <div>难度：<strong id="infoLevel" style="color:#5c3d2e"></strong></div>
         <div>病案：<strong id="infoCase" style="color:#b0a090;font-style:italic">训练结束后揭晓</strong></div>
@@ -210,7 +213,7 @@ body {
     </div>
 
     <div class="section" id="endSection" style="display:none">
-      <button class="btn btn-outline" onclick="evaluateSession()">📊 结束训练 & 查看评价</button>
+      <button class="btn btn-outline" onclick="evaluateSession()">结束训练并查看评价</button>
     </div>
   </div>
 
@@ -218,9 +221,10 @@ body {
   <div class="chat-container">
     <div class="chat-messages" id="chatMessages">
       <div class="welcome" id="welcomeScreen">
-        <div class="icon">🏥</div>
+        <div class="icon" aria-hidden="true">辨</div>
         <h2>《金匮要略》临床思辨训练</h2>
         <p>选择训练难度后点击「开始训练」，你将与模拟患者进行多轮对话。请运用"病脉证并治"思维框架，完成辨病→平脉→析证→定治的全过程。</p>
+        <div class="welcome-steps" aria-hidden="true"><span>01 辨病</span><span>02 平脉</span><span>03 析证</span><span>04 定治</span></div>
       </div>
     </div>
     <div class="chat-input">
@@ -234,12 +238,12 @@ body {
 <!-- 评价弹窗 -->
 <div class="modal-overlay" id="evalModal">
   <div class="modal">
-    <h2>📊 训练评价报告</h2>
+    <h2>训练评价报告</h2>
     <div class="eval-score" id="evalScore">--</div>
     <div class="eval-detail" id="evalDetail"></div>
     <div class="eval-text" id="evalText"></div>
     <div class="case-reveal" id="caseReveal" style="display:none;background:#f0e2cc;border:2px solid #8b5a2b;border-radius:10px;padding:16px;margin:14px 0;">
-      <h4 style="color:#5c3d2e;margin-bottom:8px;">📋 病案揭晓</h4>
+      <h4 style="color:#5c3d2e;margin-bottom:8px;">病案揭晓</h4>
       <div id="caseTitle" style="font-weight:600;margin-bottom:6px;"></div>
       <pre id="caseAnswer" style="white-space:pre-wrap;font-family:inherit;font-size:14px;line-height:1.7;color:#3d2b1f;"></pre>
     </div>
@@ -248,7 +252,7 @@ body {
       <button class="btn btn-outline" onclick="closeEval();resetAll();">开始新训练</button>
     </div>
     <div class="related-texts" id="relatedTexts" style="display:none;margin-top:16px;border-top:1px solid #e0d5c0;padding-top:16px;">
-      <h4 style="color:#5c3d2e;margin-bottom:10px;">📖 相关经典条文</h4>
+      <h4 style="color:#5c3d2e;margin-bottom:10px;">相关经典条文</h4>
       <div id="relatedTextsContent"></div>
     </div>
   </div>
@@ -344,7 +348,7 @@ async function sendMessage() {
     
   } catch(e) {
     removeLoading();
-    addMessage('system', '❌ 消息发送失败: ' + e.message);
+    addMessage('system', '消息发送失败: ' + e.message);
   }
   
   input.disabled = !sessionActive;
@@ -390,8 +394,8 @@ async function evaluateSession() {
         <div class="eval-item"><span class="eval-label">思辨能力等级</span><span class="eval-value">${evalData['思辨能力等级']||'--'}</span></div>
       `;
       document.getElementById('evalText').innerHTML = `
-        <strong>✅ 优点：</strong>${evalData['优点']||'--'}<br><br>
-        <strong>💡 改进建议：</strong>${evalData['改进建议']||'--'}
+        <strong>优点：</strong>${evalData['优点']||'--'}<br><br>
+        <strong>改进建议：</strong>${evalData['改进建议']||'--'}
       `;
     } else {
       document.getElementById('evalScore').textContent = data.score || '--';
@@ -405,7 +409,7 @@ async function evaluateSession() {
       let html = '';
       data.related_texts.forEach((t, i) => {
         html += `<div style="background:#faf7f0;padding:10px 14px;border-radius:8px;margin-bottom:8px;border-left:3px solid #8b5a2b;">
-          <div style="font-size:12px;color:#8a7a6a;margin-bottom:4px;">📜 ${escHtml(t.source_book)} · ${escHtml(t.chapter)}</div>
+          <div style="font-size:12px;color:#8a7a6a;margin-bottom:4px;">${escHtml(t.source_book)} · ${escHtml(t.chapter)}</div>
           <div style="font-size:14px;line-height:1.7;color:#3d2b1f;">${escHtml(t.content)}</div>
         </div>`;
       });
@@ -417,7 +421,7 @@ async function evaluateSession() {
     document.getElementById('evalModal').classList.add('show');
     
   } catch(e) {
-    addMessage('system', '❌ 评价失败: ' + e.message);
+    addMessage('system', '评价失败: ' + e.message);
   }
 }
 
@@ -434,7 +438,7 @@ function addMessage(role, content, type) {
   if (type && role === 'agent') {
     const tag = document.createElement('span');
     tag.className = 'type-tag ' + type;
-    const labels = { hint:'💡提示', praise:'✅肯定', correction:'🔄纠错', evaluation:'📊评价', question:'❓提问' };
+    const labels = { hint:'提示', praise:'肯定', correction:'纠错', evaluation:'评价', question:'提问' };
     tag.textContent = labels[type] || type;
     div.appendChild(tag);
     div.appendChild(document.createElement('br'));
@@ -499,9 +503,10 @@ function resetAll() {
   document.getElementById('endSection').style.display = 'none';
   document.getElementById('chatMessages').innerHTML = `
     <div class="welcome" id="welcomeScreen">
-      <div class="icon">🏥</div>
+      <div class="icon" aria-hidden="true">辨</div>
       <h2>《金匮要略》临床思辨训练</h2>
       <p>选择训练难度后点击「开始训练」，你将与模拟患者进行多轮对话。请运用"病脉证并治"思维框架，完成辨病→平脉→析证→定治的全过程。</p>
+      <div class="welcome-steps" aria-hidden="true"><span>01 辨病</span><span>02 平脉</span><span>03 析证</span><span>04 定治</span></div>
     </div>`;
   document.getElementById('msgInput').disabled = true;
   document.getElementById('sendBtn').disabled = true;

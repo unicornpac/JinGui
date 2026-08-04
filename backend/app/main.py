@@ -2,6 +2,7 @@
 FastAPI主应用
 """
 from pathlib import Path
+from urllib.parse import urlencode
 from dotenv import load_dotenv
 
 # 启动前加载 .env（仅在环境变量未设置时生效，兼容生产环境）
@@ -13,7 +14,7 @@ if _env_file.exists():
 
 import os
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from .database import init_db
@@ -21,6 +22,7 @@ from .dependencies import verify_admin_page
 from .routers import texts, cases, analysis, documents, agent, import_review
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
+UI_VERSION = "20260804-2"
 
 # 创建FastAPI应用
 app = FastAPI(
@@ -93,27 +95,83 @@ async def root(_: str = Depends(verify_admin_page)):
     from fastapi.responses import FileResponse
     index_path = STATIC_DIR / "index.html"
     if index_path.exists():
-        return FileResponse(index_path)
+        return FileResponse(index_path, headers={"Cache-Control": "no-store, max-age=0"})
     return {"message": "中医经典条文学习系统", "api文档": "/docs"}
 
 
 @app.get("/user")
 async def user_portal():
-    """用户端入口页面"""
+    """首访用户入口页面。"""
     from fastapi.responses import FileResponse
-    user_path = STATIC_DIR / "user.html"
+    user_path = STATIC_DIR / "newcase.html"
     if user_path.exists():
-        return FileResponse(user_path)
-    return {"message": "用户端页面不存在", "hint": "请检查 static/user.html"}
+        return FileResponse(user_path, headers={"Cache-Control": "no-store, max-age=0"})
+    return {"message": "用户端页面不存在", "hint": "请检查 static/newcase.html"}
+
+
+@app.get("/portal")
+async def returning_user_portal():
+    """保留给回访用户的功能门户。"""
+    from fastapi.responses import FileResponse
+    portal_path = STATIC_DIR / "user.html"
+    if portal_path.exists():
+        return FileResponse(portal_path, headers={"Cache-Control": "no-store, max-age=0"})
+    return {"message": "用户门户不存在", "hint": "请检查 static/user.html"}
+
+
+@app.get("/newcase")
+async def newcase_page():
+    """New homepage concept preview."""
+    from fastapi.responses import FileResponse
+    newcase_path = STATIC_DIR / "newcase.html"
+    if newcase_path.exists():
+        return FileResponse(newcase_path, headers={"Cache-Control": "no-store, max-age=0"})
+    return {"message": "Newcase page not found", "hint": "Check static/newcase.html"}
+
+
+@app.get("/static/jingui-theme.css", include_in_schema=False)
+async def jingui_theme_css():
+    """Shared visual theme for the local interface previews."""
+    from fastapi.responses import FileResponse
+    theme_path = STATIC_DIR / "jingui-theme.css"
+    if theme_path.exists():
+        return FileResponse(theme_path, media_type="text/css", headers={"Cache-Control": "no-store, max-age=0"})
+    raise HTTPException(status_code=404, detail="Theme stylesheet not found")
+
+
+@app.get("/static/jingui-motion.js", include_in_schema=False)
+async def jingui_motion_js():
+    """共享的实验性交互渲染层。"""
+    from fastapi.responses import FileResponse
+    motion_path = STATIC_DIR / "jingui-motion.js"
+    if motion_path.exists():
+        return FileResponse(motion_path, media_type="application/javascript", headers={"Cache-Control": "no-store, max-age=0"})
+    raise HTTPException(status_code=404, detail="Motion script not found")
 
 
 @app.get("/train")
-async def train_page():
+async def train_page(request: Request):
     """智能体训练页面"""
-    from fastapi.responses import FileResponse
+    from fastapi.responses import FileResponse, RedirectResponse
+
+    # 旧版训练页曾被浏览器长期缓存。把视觉版本放进地址本身，确保首访、
+    # 回退和书签访问都加载同一套界面，同时保留 level / focus 等业务参数。
+    if request.query_params.get("ui") != UI_VERSION:
+        query_items = [
+            (key, value)
+            for key, value in request.query_params.multi_items()
+            if key != "ui"
+        ]
+        query_items.append(("ui", UI_VERSION))
+        return RedirectResponse(
+            url=f"/train?{urlencode(query_items)}",
+            status_code=307,
+            headers={"Cache-Control": "no-store, max-age=0"},
+        )
+
     train_path = STATIC_DIR / "train.html"
     if train_path.exists():
-        return FileResponse(train_path)
+        return FileResponse(train_path, headers={"Cache-Control": "no-store, max-age=0"})
     return {"message": "训练页面不存在", "hint": "请检查 static/train.html"}
 
 
@@ -123,7 +181,7 @@ async def study_page():
     from fastapi.responses import FileResponse
     study_path = STATIC_DIR / "study.html"
     if study_path.exists():
-        return FileResponse(study_path)
+        return FileResponse(study_path, headers={"Cache-Control": "no-store, max-age=0"})
     return {"message": "学习页面不存在", "hint": "请检查 static/study.html"}
 
 
