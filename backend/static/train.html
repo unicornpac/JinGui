@@ -215,6 +215,10 @@ body {
     <div class="section" id="endSection" style="display:none">
       <button class="btn btn-outline" onclick="evaluateSession()">结束训练并查看评价</button>
     </div>
+
+    <div class="section">
+      <button class="btn btn-outline" onclick="openFeedback()" style="border-color:#d4c4a8;color:#8a7a6a;">💬 用户反馈</button>
+    </div>
   </div>
 
   <!-- 聊天区 -->
@@ -254,6 +258,35 @@ body {
     <div class="related-texts" id="relatedTexts" style="display:none;margin-top:16px;border-top:1px solid #e0d5c0;padding-top:16px;">
       <h4 style="color:#5c3d2e;margin-bottom:10px;">相关经典条文</h4>
       <div id="relatedTextsContent"></div>
+    </div>
+  </div>
+</div>
+
+<!-- 用户反馈弹窗 -->
+<div class="modal-overlay" id="feedbackModal">
+  <div class="modal">
+    <h2>用户反馈</h2>
+    <p style="font-size:13px;color:#8a7a6a;margin-bottom:16px;">欢迎提交任何意见、建议或问题反馈，帮助我们改进系统。</p>
+    <div class="form-row" style="margin-bottom:12px;">
+      <label style="display:block;font-size:13px;color:#8a7a6a;margin-bottom:4px;">反馈类别</label>
+      <select id="fbCategory" style="width:100%;padding:8px 12px;border:2px solid #e0d5c0;border-radius:8px;font-size:14px;font-family:inherit;outline:none;background:#fff;">
+        <option value="功能建议">功能建议</option>
+        <option value="bug反馈">bug反馈</option>
+        <option value="使用体验">使用体验</option>
+        <option value="其他">其他</option>
+      </select>
+    </div>
+    <div class="form-row" style="margin-bottom:12px;">
+      <label style="display:block;font-size:13px;color:#8a7a6a;margin-bottom:4px;">反馈内容 <span style="color:#c0392b;">*</span></label>
+      <textarea id="fbContent" rows="5" placeholder="请详细描述你的意见或问题…（不少于5个字）" style="width:100%;padding:10px 12px;border:2px solid #e0d5c0;border-radius:8px;font-size:14px;font-family:inherit;outline:none;resize:vertical;min-height:100px;"></textarea>
+    </div>
+    <div class="form-row" style="margin-bottom:12px;">
+      <label style="display:block;font-size:13px;color:#8a7a6a;margin-bottom:4px;">联系方式（可选）</label>
+      <input id="fbContact" placeholder="邮箱或微信号，方便我们回复你" style="width:100%;padding:8px 12px;border:2px solid #e0d5c0;border-radius:8px;font-size:14px;font-family:inherit;outline:none;background:#fff;">
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-primary" onclick="submitFeedback()">提交反馈</button>
+      <button class="btn btn-outline" onclick="closeFeedback()">取消</button>
     </div>
   </div>
 </div>
@@ -520,6 +553,52 @@ function resetAll() {
 }
 
 function escHtml(s) { if(!s){return''} const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
+
+// ===== 用户反馈 =====
+function openFeedback() {
+  document.getElementById('fbContent').value = '';
+  document.getElementById('fbContact').value = '';
+  document.getElementById('fbCategory').value = '功能建议';
+  document.getElementById('feedbackModal').classList.add('show');
+}
+
+function closeFeedback() {
+  document.getElementById('feedbackModal').classList.remove('show');
+}
+
+async function submitFeedback() {
+  const category = document.getElementById('fbCategory').value;
+  const content = document.getElementById('fbContent').value.trim();
+  const contact = document.getElementById('fbContact').value.trim();
+
+  if (!content || content.length < 5) {
+    alert('反馈内容不少于5个字');
+    return;
+  }
+
+  try {
+    const body = { category, content };
+    if (contact) body.contact = contact;
+    if (sessionId) body.session_id = sessionId;
+
+    const resp = await fetch('/api/feedback/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+
+    if (!resp.ok) {
+      const err = await resp.json();
+      throw new Error(err.detail || '提交失败');
+    }
+
+    const result = await resp.json();
+    alert(result.message || '感谢你的反馈！');
+    closeFeedback();
+  } catch (e) {
+    alert('提交反馈失败: ' + e.message);
+  }
+}
 </script>
 
 </body>

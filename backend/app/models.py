@@ -210,3 +210,21 @@ class SessionMessage(Base):
 
     # 关系
     session = relationship("TrainingSession", back_populates="messages")
+
+
+class Feedback(Base):
+    """用户反馈表"""
+    __tablename__ = "feedbacks"
+
+    id = Column(Integer, primary_key=True, index=True)
+    session_id = Column(Integer, ForeignKey("training_sessions.id"), comment="关联的训练会话ID（可选）")
+    category = Column(String(30), nullable=False, comment="反馈类别：功能建议/bug反馈/使用体验/其他")
+    content = Column(Text, nullable=False, comment="反馈内容")
+    contact = Column(String(200), comment="联系方式（可选）")
+    status = Column(String(20), default="pending", comment="状态：pending/resolved/closed")
+    admin_note = Column(Text, comment="管理员备注")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    resolved_at = Column(DateTime(timezone=True), comment="处理时间")
+
+    # 关系
+    session = relationship("TrainingSession")
