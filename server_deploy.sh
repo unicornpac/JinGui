@@ -40,6 +40,7 @@ FILES=(
   "app/routers/cases.py"
   "app/routers/analysis.py"
   "app/routers/import_review.py"
+  "app/routers/feedback.py"
   "seed_texts.py"
   "seed_cases.py"
   "requirements.txt"
