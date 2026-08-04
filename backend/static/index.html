@@ -139,6 +139,7 @@ tr:hover td { background:var(--hover); }
     <div class="tab" onclick="switchTab('texts')">条文管理</div>
     <div class="tab" onclick="switchTab('upload')">文档上传</div>
     <div class="tab" onclick="switchTab('import')">导入审核</div>
+    <div class="tab" onclick="switchTab('feedback')">用户反馈</div>
   </div>
 
   <!-- 训练记录 -->
@@ -248,6 +249,19 @@ tr:hover td { background:var(--hover); }
       <tbody id="stagingTbody"></tbody></table>
     </div>
   </div>
+
+  <!-- 用户反馈 -->
+  <div class="panel" id="pFeedback">
+    <div class="card">
+      <div class="filters">
+        <select id="ffCategory" onchange="loadFeedbacks()"><option value="">全部类别</option><option value="功能建议">功能建议</option><option value="bug反馈">bug反馈</option><option value="使用体验">使用体验</option><option value="其他">其他</option></select>
+        <select id="ffStatus" onchange="loadFeedbacks()"><option value="">全部状态</option><option value="pending">待处理</option><option value="resolved">已处理</option><option value="closed">已关闭</option></select>
+        <button class="btn btn-primary" onclick="loadFeedbacks()">刷新</button>
+      </div>
+      <table><thead><tr><th>ID</th><th>类别</th><th>内容</th><th>联系方式</th><th>关联会话</th><th>状态</th><th>时间</th><th>操作</th></tr></thead>
+      <tbody id="fbTbody"><tr><td colspan="8" style="text-align:center;color:var(--muted);padding:30px;">加载中…</td></tr></tbody></table>
+    </div>
+  </div>
 </div>
 
 <!-- 会话详情弹窗 -->
@@ -316,7 +330,7 @@ const API = '/api'; let editingCaseId = null, editingTextId = null;
 
 // Tab
 function switchTab(n) {
-  const map = { train:'训练记录', cases:'病案管理', texts:'条文管理', upload:'文档上传', analysis:'AI分析' };
+  const map = { train:'训练记录', cases:'病案管理', texts:'条文管理', upload:'文档上传', import:'导入审核', feedback:'用户反馈' };
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.textContent.includes(map[n])));
   document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
   document.getElementById('p'+n.charAt(0).toUpperCase()+n.slice(1)).classList.add('active');
@@ -325,6 +339,7 @@ function switchTab(n) {
   if (n==='texts') loadTexts();
   if (n==='upload') loadDocs();
   if (n==='import') loadBatches();
+  if (n==='feedback') loadFeedbacks();
 }
 
 // === 训练记录 ===
@@ -816,6 +831,74 @@ function newStaging() {
   document.getElementById('seContent').value = '';
   document.getElementById('seRaw').value = '';
   document.getElementById('stagingEditModal').classList.add('show');
+}
+
+// === 用户反馈管理 ===
+async function loadFeedbacks() {
+  const cat = document.getElementById('ffCategory').value;
+  const st = document.getElementById('ffStatus').value;
+  let url = `${API}/feedback/?limit=100`;
+  if (cat) url += `&category=${encodeURIComponent(cat)}`;
+  if (st) url += `&status=${st}`;
+
+  try {
+    const data = await (await fetch(url)).json();
+    const tbody = document.getElementById('fbTbody');
+    if (!data.length) {
+      tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:30px;">暂无反馈</td></tr>';
+      return;
+    }
+    tbody.innerHTML = data.map(fb => {
+      const stCls = fb.status === 'pending' ? 'bg-intermediate' : fb.status === 'resolved' ? 'bg-active' : 'bg-advanced';
+      const stLabel = { pending: '待处理', resolved: '已处理', closed: '已关闭' }[fb.status] || fb.status;
+      const sessionInfo = fb.session_id ? `#${fb.session_id} ${fb.session_difficulty||''}` : '--';
+      return `<tr>
+        <td>${fb.id}</td>
+        <td><span class="badge bg-${fb.category==='功能建议'?'active':fb.category==='bug反馈'?'advanced':'intermediate'}">${fb.category}</span></td>
+        <td style="max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(fb.content)}">${escapeHtml(fb.content).substring(0,60)}</td>
+        <td>${escapeHtml(fb.contact||'--')}</td>
+        <td style="font-size:12px;">${sessionInfo}</td>
+        <td><span class="badge ${stCls}">${stLabel}</span></td>
+        <td style="font-size:12px;">${(fb.created_at||'').substring(0,10)}</td>
+        <td style="white-space:nowrap;">
+          ${fb.status==='pending' ? `<button class="btn btn-view btn-sm" onclick="resolveFeedback(${fb.id})">处理</button>` : ''}
+          <button class="btn btn-view btn-sm" onclick="closeFeedback_(${fb.id})">关闭</button>
+          <button class="btn btn-del btn-sm" onclick="deleteFeedback(${fb.id})">删除</button>
+        </td>
+      </tr>`;
+    }).join('');
+  } catch (e) {
+    document.getElementById('fbTbody').innerHTML = '<tr><td colspan="8" style="text-align:center;color:#c0392b;padding:30px;">加载失败</td></tr>';
+  }
+}
+
+async function resolveFeedback(id) {
+  const note = prompt('处理备注（可选）：');
+  await fetch(`${API}/feedback/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status: 'resolved', admin_note: note || null })
+  });
+  toast('已标记为已处理', 'success');
+  loadFeedbacks();
+}
+
+async function closeFeedback_(id) {
+  const note = prompt('关闭备注（可选）：');
+  await fetch(`${API}/feedback/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status: 'closed', admin_note: note || null })
+  });
+  toast('已关闭', 'success');
+  loadFeedbacks();
+}
+
+async function deleteFeedback(id) {
+  if (!confirm('确定删除此反馈？')) return;
+  await fetch(`${API}/feedback/${id}`, { method: 'DELETE' });
+  toast('已删除', 'success');
+  loadFeedbacks();
 }
 
 // 初始化

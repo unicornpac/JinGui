@@ -208,3 +208,35 @@ class PublicStatsResponse(BaseModel):
     case_count: int
     session_count: int
     average_score: Optional[float] = None
+
+
+# ========== 用户反馈 ==========
+class FeedbackCreate(BaseModel):
+    """提交反馈请求"""
+    category: str = Field(..., description="反馈类别：功能建议/bug反馈/使用体验/其他")
+    content: str = Field(..., min_length=5, max_length=2000, description="反馈内容（5-2000字）")
+    contact: Optional[str] = Field(None, description="联系方式（可选）")
+    session_id: Optional[int] = Field(None, description="关联的训练会话ID（可选）")
+
+
+class FeedbackUpdate(BaseModel):
+    """管理员更新反馈状态"""
+    status: Optional[str] = Field(None, description="状态：pending/resolved/closed")
+    admin_note: Optional[str] = Field(None, description="管理员备注")
+
+
+class FeedbackResponse(BaseModel):
+    """反馈列表响应"""
+    id: int
+    session_id: Optional[int] = None
+    category: str
+    content: str
+    contact: Optional[str] = None
+    status: str
+    admin_note: Optional[str] = None
+    created_at: Optional[datetime] = None
+    resolved_at: Optional[datetime] = None
+    session_difficulty: Optional[str] = Field(None, description="关联会话难度（如有）")
+
+    class Config:
+        from_attributes = True
