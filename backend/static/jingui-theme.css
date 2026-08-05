@@ -919,9 +919,7 @@ body.theme-study{
 .jg-enhanced .portal-actions .card,
 .jg-enhanced .stats-section,
 .jg-enhanced .disease-card,
-.jg-enhanced .stat-card,
-.jg-enhanced .diff-btn,
-.jg-enhanced .panel .card{
+.jg-enhanced .diff-btn{
   transform:perspective(900px) rotateX(var(--jg-rx,0deg)) rotateY(var(--jg-ry,0deg)) translateZ(0);
   transform-style:preserve-3d;
   will-change:transform;
