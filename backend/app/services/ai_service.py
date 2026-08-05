@@ -12,6 +12,9 @@ from dotenv import load_dotenv
 _backend_dir = Path(__file__).resolve().parent.parent.parent
 load_dotenv(_backend_dir / ".env", override=False)
 
+from ..logger import get_logger
+logger = get_logger(__name__)
+
 
 class AIService:
     """AI分析服务基类"""
@@ -28,7 +31,7 @@ class AIService:
         self.api_type = api_type
         
         if not self.api_key:
-            print("警告: 未配置AI API密钥，AI分析功能将不可用")
+            logger.warning("未配置AI API密钥，AI分析功能将不可用")
     
     def analyze_text_case_relation(
         self, 
@@ -131,14 +134,14 @@ class AIService:
                 }
             else:
                 err_msg = getattr(response, "message", None) or getattr(response, "code", None) or str(response)
-                print(f"通义千问API调用失败: status={response.status_code}, {err_msg}")
+                logger.error("通义千问API调用失败: status=%s, %s", response.status_code, err_msg)
                 return self._default_analysis(text, case, error=f"API调用失败: {err_msg}")
                 
         except ImportError:
-            print("dashscope未安装，请运行: pip install dashscope")
+            logger.error("dashscope未安装")
             return self._default_analysis(text, case, error="dashscope 未安装")
         except Exception as e:
-            print(f"AI分析出错: {str(e)}")
+            logger.exception("AI分析出错")
             import traceback
             traceback.print_exc()
             return self._default_analysis(text, case, error=str(e))
@@ -197,14 +200,14 @@ class AIService:
                     return {"analysis": analysis, "model": m, "success": True}
                 except Exception as e:
                     last_err = str(e)
-                    print(f"模型 {m} 调用失败: {last_err}")
+                    logger.warning("模型 %s 调用失败: %s", m, last_err)
                     continue
             return self._default_analysis(text, case, error=last_err or "所有模型均调用失败")
         except ImportError:
             return self._default_analysis(text, case, error="openai 未安装，请运行: pip install openai")
         except Exception as e:
             err = str(e)
-            print(f"OpenAI兼容接口调用失败: {err}")
+            logger.error("OpenAI兼容接口调用失败: %s", err)
             return self._default_analysis(text, case, error=err)
     
     def _baidu_analyze(self, text: str, case: str) -> Dict[str, any]:
@@ -265,14 +268,14 @@ class AIService:
                 }
             else:
                 err = result.get("error_msg", result.get("error", str(result)))
-                print(f"文心一言API调用失败: {err}")
+                logger.error("文心一言API调用失败: %s", err)
                 return self._default_analysis(text, case, error=f"文心一言: {err}")
                 
         except ImportError:
-            print("requests未安装，请运行: pip install requests")
+            logger.error("requests未安装")
             return self._default_analysis(text, case, error="requests 未安装")
         except Exception as e:
-            print(f"AI分析出错: {str(e)}")
+            logger.exception("AI分析出错")
             return self._default_analysis(text, case, error=str(e))
     
     def _default_analysis(self, text: str, case: str, error: str = None) -> Dict[str, any]:

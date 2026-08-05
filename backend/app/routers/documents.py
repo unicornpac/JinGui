@@ -15,7 +15,10 @@ from ..dependencies import verify_admin, limit_upload
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from ..models import Document, ClassicText, MedicalCase, ImportBatch, ImportStaging
 from ..schemas import DocumentResponse, MessageResponse
+from ..logger import get_logger
 from ..services.parser import DocumentParser
+
+logger = get_logger(__name__)
 from ..services.import_validator import validate_import_batch, format_report_text
 
 router = APIRouter()
@@ -71,7 +74,7 @@ def process_document(doc_id: int, file_path: str):
         # ── 质量闸门 ──
         source_book = texts[0].get("source_book", "《伤寒论》") if texts else "《伤寒论》"
         quality_report = validate_import_batch(texts, expected_book=source_book)
-        print(f"[process_document] 质检报告:\n{format_report_text(quality_report)}")
+        logger.info("质检报告:\n%s", format_report_text(quality_report))
 
         # ── 创建导入批次 ──
         batch_id = uuid.uuid4().hex[:12]
@@ -130,12 +133,12 @@ def process_document(doc_id: int, file_path: str):
         db.commit()
 
         passed = quality_report.get("passed", False)
-        print(
-            f"[process_document] 完成: 暂存 {staged_count} 条, "
-            f"批次 {batch_id}, 质检 {'通过' if passed else '待审核'}"
+        logger.info(
+            "完成: 暂存 %s 条, 批次 %s, 质检 %s",
+            staged_count, batch_id, '通过' if passed else '待审核'
         )
         if quality_report.get("issues"):
-            print(f"[process_document] 质量问题: {quality_report['issues']}")
+            logger.warning("质量问题: %s", quality_report['issues'])
 
     except Exception as e:
         import traceback
@@ -147,7 +150,7 @@ def process_document(doc_id: int, file_path: str):
             doc.error_message = str(e)[:1000]
             doc.processed_at = datetime.now()
             db.commit()
-        print(f"文档处理失败: {str(e)}")
+        logger.exception("文档处理失败")
     finally:
         db.close()
 
