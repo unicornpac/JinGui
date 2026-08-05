@@ -80,7 +80,7 @@
     addEventListener('pointerleave', () => { pointerLive = false; }, { passive: true });
 
     if (finePointer) {
-      const tiltSelector = '.portal-actions .card,.stats-section,.disease-card,.stat-card,.diff-btn,.panel .card';
+      const tiltSelector = '.portal-actions .card,.stats-section,.disease-card,.diff-btn';
       const magneticSelector = '.hero-btn,.card .btn,.btn-primary,.chat-input button,.ai-btn';
       let activeTilt = null;
       let activeMagnet = null;
