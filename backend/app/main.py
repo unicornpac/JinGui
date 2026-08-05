@@ -83,6 +83,47 @@ app.include_router(documents.router, prefix="/api/documents", tags=["文档管�
 app.include_router(agent.router, prefix="/api/agent", tags=["智能体训练"])
 app.include_router(import_review.router)
 app.include_router(feedback.router, prefix="/api/feedback", tags=["用户反馈"])
+@app.get("/health")
+async def health_check():
+    """健康检查：数据库连接 + AI API 连通性"""
+    import asyncio
+    import httpx
+
+    status = "ok"
+    db_status = "connected"
+    ai_status = "unknown"
+
+    # 1. 检查数据库连接
+    try:
+        from .database import SessionLocal
+        from sqlalchemy import text
+        db = SessionLocal()
+        db.execute(text("SELECT 1"))
+        db.close()
+    except Exception as e:
+        db_status = f"error: {e}"
+        status = "degraded"
+
+    # 2. 检查 AI API 连通性（非阻塞）
+    try:
+        base_url = (os.getenv("OPENAI_BASE_URL", "") or "").strip().rstrip("/")
+        if base_url:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                resp = await client.get(f"{base_url}/models")
+                ai_status = "ready" if resp.status_code < 500 else f"api_error({resp.status_code})"
+        else:
+            ai_status = "not_configured"
+    except Exception as e:
+        ai_status = f"unreachable: {str(e)[:80]}"
+
+    http_status = 200 if status == "ok" else 503
+    return {
+        "status": status,
+        "db": db_status,
+        "ai": ai_status,
+    }, http_status
+
+
 @app.on_event("startup")
 async def startup_event():
     """应用启动时初始化数据库"""
