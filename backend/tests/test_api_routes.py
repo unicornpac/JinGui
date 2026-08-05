@@ -2,10 +2,11 @@
 API 路由集成测试 —— 测试 HTTP 层行为，agent/DB 逻辑用 mock 隔离
 """
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock
 from sqlalchemy.orm import sessionmaker
 
 from app.models import ClassicText, MedicalCase, TrainingSession
+from app.services.agent_service import get_agent
 
 
 # ==================== Agent Session 生命周期 ====================
@@ -15,23 +16,25 @@ class TestSessionLifecycle:
 
     def test_start_session_returns_200(self, client):
         """POST /api/agent/session/start 正常创建会话"""
-        with patch('app.routers.agent.get_agent') as mock_get_agent:
-            mock_agent = MagicMock()
-            mock_agent.create_session.return_value = (
-                MagicMock(id=1, difficulty_level="初级", case=MagicMock(title="湿病")),
-                "医生你好，我最近全身关节疼……"
-            )
-            mock_get_agent.return_value = mock_agent
+        mock_agent = MagicMock()
+        mock_agent.create_session.return_value = (
+            MagicMock(id=1, difficulty_level="初级", case=MagicMock(title="湿病")),
+            "医生你好，我最近全身关节疼……"
+        )
+        client.app.dependency_overrides[get_agent] = lambda: mock_agent
 
+        try:
             resp = client.post("/api/agent/session/start", json={
                 "difficulty_level": "初级",
                 "student_id": "test_user"
             })
 
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["session_id"] == 1
-        assert "agent_message" in data
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["session_id"] == 1
+            assert "agent_message" in data
+        finally:
+            client.app.dependency_overrides.pop(get_agent, None)
 
     def test_start_session_missing_difficulty(self, client):
         """缺少必填字段应返回 4xx 错误"""
@@ -40,28 +43,32 @@ class TestSessionLifecycle:
 
     def test_start_session_agent_error(self, client):
         """agent 抛出 ValueError 应返回 400"""
-        with patch('app.routers.agent.get_agent') as mock_get_agent:
-            mock_agent = MagicMock()
-            mock_agent.create_session.side_effect = ValueError("数据库中没有病案")
-            mock_get_agent.return_value = mock_agent
+        mock_agent = MagicMock()
+        mock_agent.create_session.side_effect = ValueError("数据库中没有病案")
+        client.app.dependency_overrides[get_agent] = lambda: mock_agent
 
+        try:
             resp = client.post("/api/agent/session/start", json={
                 "difficulty_level": "初级"
             })
 
-        assert resp.status_code == 400
+            assert resp.status_code == 400
+        finally:
+            client.app.dependency_overrides.pop(get_agent, None)
 
     def test_send_message_session_not_found(self, client):
         """向不存在的会话发消息应返回 400"""
-        with patch('app.routers.agent.get_agent') as mock_get_agent:
-            mock_agent = MagicMock()
-            mock_agent.process_message.side_effect = ValueError("会话 99999 不存在")
-            mock_get_agent.return_value = mock_agent
+        mock_agent = MagicMock()
+        mock_agent.process_message.side_effect = ValueError("会话 99999 不存在")
+        client.app.dependency_overrides[get_agent] = lambda: mock_agent
 
+        try:
             resp = client.post("/api/agent/session/99999/message", json={
                 "content": "你好"
             })
-        assert resp.status_code == 400
+            assert resp.status_code == 400
+        finally:
+            client.app.dependency_overrides.pop(get_agent, None)
 
 
 # ==================== 页面访问 ====================

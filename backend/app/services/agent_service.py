@@ -590,10 +590,6 @@ class TrainingAgent:
         return "\n".join(path)
 
 
-_agent_instance = None
-
 def get_agent() -> TrainingAgent:
-    global _agent_instance
-    if _agent_instance is None:
-        _agent_instance = TrainingAgent()
-    return _agent_instance
+    """请求级依赖注入：每个请求独立实例，避免并发状态污染。"""
+    return TrainingAgent()

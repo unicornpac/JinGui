@@ -20,7 +20,7 @@ from ..schemas import (
     SessionDetailResponse, SessionEvaluateResponse,
     MessageResponse, PublicStatsResponse
 )
-from ..services.agent_service import get_agent
+from ..services.agent_service import get_agent, TrainingAgent
 
 router = APIRouter()
 
@@ -56,9 +56,9 @@ async def start_session(
     req: SessionStartRequest,
     db: Session = Depends(get_db),
     _rl: None = Depends(limit_agent_start),
+    agent: TrainingAgent = Depends(get_agent),
 ):
     """开始一个新的临床思辨训练会话"""
-    agent = get_agent()
     try:
         session, opening = agent.create_session(
             db=db,
@@ -84,9 +84,9 @@ async def send_message(
     req: SessionMessageRequest,
     db: Session = Depends(get_db),
     _rl: None = Depends(limit_agent_message),
+    agent: TrainingAgent = Depends(get_agent),
 ):
     """向智能体发送消息，获取回复"""
-    agent = get_agent()
     try:
         agent_response, msg_type, session_status, progress = agent.process_message(
             db=db,
@@ -148,6 +148,7 @@ async def evaluate_session(
     session_id: int,
     db: Session = Depends(get_db),
     _rl: None = Depends(limit_agent_start),
+    agent: TrainingAgent = Depends(get_agent),
 ):
     """结束训练会话并生成 AI 评价报告（含病案揭晓）"""
     session = db.query(TrainingSession).filter(TrainingSession.id == session_id).first()
@@ -167,7 +168,6 @@ async def evaluate_session(
             related_texts=[]
         )
     
-    agent = get_agent()
     try:
         result = agent.evaluate_session(db=db, session_id=session_id)
         return SessionEvaluateResponse(
