@@ -226,7 +226,7 @@ fi
 HEALTH_OK=false
 for attempt in $(seq 1 15); do
   if sudo systemctl is-active --quiet jingui \
-    && curl -fsS --max-time 3 http://localhost:8000/user >/dev/null; then
+    && curl -fsS --max-time 3 http://localhost:8000/health >/dev/null; then
     HEALTH_OK=true
     break
   fi
@@ -236,6 +236,8 @@ done
 
 if ! ${HEALTH_OK}; then
   echo "错误：服务在等待 30 秒后仍未通过健康检查。" >&2
+  echo "健康检查详情：" >&2
+  curl -s --max-time 3 http://localhost:8000/health 2>&1 || true
   sudo systemctl status jingui --no-pager -l || true
   sudo journalctl -u jingui -n 50 --no-pager || true
   exit 1
