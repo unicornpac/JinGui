@@ -62,9 +62,9 @@ def process_document(doc_id: int, file_path: str):
         db.commit()
 
         texts = extracted.get("texts", [])
-        if not texts or len(texts) < 5:
+        if not texts or len(texts) < 3:
             doc.status = "failed"
-            doc.error_message = f"解析失败：仅提取到 {len(texts)} 条条文（预期 ≥5）"
+            doc.error_message = f"解析失败：仅提取到 {len(texts)} 条条文（预期 ≥3）"
             db.commit()
             return
 
