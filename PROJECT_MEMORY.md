@@ -433,6 +433,7 @@ ADMIN_PASSWORD=请在服务器环境中配置
 | 2026-08-03 | P1-6 | 文档解析失败保存错误原因；管理端可显示失败详情并安全重试，保留原始文件与既有数据 | `app/models.py`、`app/database.py`、`app/schemas.py`、`app/routers/documents.py`、`static/index.html` |
 | 2026-08-03 | P2-6 | 条文导入系统全面重构：parser.py全新切分算法、raw_content双字段、质量闸门、暂存审核流程、管理端导入面板 | `parser.py`（重写）、`models.py`、`database.py`、`documents.py`（重写）、`import_validator.py`（新增）、`import_review.py`（新增）、`main.py`、`index.html`、`server_deploy.sh` |
 | 2026-08-04 | — | 新增用户反馈功能：feedbacks表 + 4个API端点 + 训练页反馈按钮/弹窗 + 管理端反馈面板 | `models.py`、`schemas.py`、`routers/feedback.py`（新增）、`main.py`、`train.html`、`index.html`、`server_deploy.sh` |
+| 2026-08-05 | — | 修复文档解析三大Bug：阈值过高导致金匮单章被丢弃、legacy正则括号方向错误、PDF/Excel缺paragraphs字段 | `parser.py` |
 
 ---
 
@@ -497,6 +498,22 @@ ADMIN_PASSWORD=请在服务器环境中配置
 ---
 
 ## 工作日志
+
+### 2026-08-05 会话记录
+
+**修复文档上传解析失败（金匮要略单章无法解析）**
+
+- 现象：上传《金匮要略》单章 DOCX（如 `04 疟病脉证并治第四.docx`），上传成功但后台解析失败（status=failed），提取到 0 条条文。
+- 根因分析：三个 Bug 形成"双重夹击"：
+  1. **Bug 3（主因）**：`extract_texts_and_cases()` 第 498 行硬编码阈值 `len(articles) >= 10`。`_split_by_sentence_end_number` 正确解析出 8 条，但不满足 `>=10` 条件，结果被丢弃。
+  2. **Bug 1（次因）**：旧路径 `_extract_legacy()` 第 525 行正则 `r'[）)](\d+)[）)]'` 前后都是右括号，标准中文格式 `（1）`（左括号+数字+右括号）无法匹配。
+  3. **Bug 2（次因）**：`_parse_pdf` 和 `_parse_excel` 不返回 `paragraphs` 字段，导致 PDF/Excel 文件被迫走有 Bug 的旧路径。
+- 修复内容：
+  1. 阈值 `>=10` → `>=3`：金匮要略单章通常 5-8 条，现可正常通过。
+  2. 正则 `[）)]` → `[（(]`：第一个字符类改为左括号，匹配标准中文 `（数字）` 格式。
+  3. `_parse_pdf` 和 `_parse_excel` 补充 `paragraphs` 字段，统一走新解析路径。
+- 验证：疟病脉证并治第四.docx（8 条）解析成功，质检通过；全量 111 测试通过无回归。
+- 涉及文件：`parser.py`、`PROJECT_MEMORY.md`
 
 ### 2026-08-04 会话记录
 

@@ -353,8 +353,11 @@ class DocumentParser:
                         text_content += page_text + "\n"
         except Exception as e:
             raise Exception(f"PDF解析失败: {str(e)}")
+        paragraphs = [(line.strip(), i) for i, line in enumerate(text_content.split('\n')) if line.strip()]
         return {
             "content": text_content.strip(),
+            "paragraphs": paragraphs,
+            "paragraph_count": len(paragraphs),
             "pages": pages_count,
             "file_type": "pdf",
             "sha256": self._compute_sha256(file_path),
@@ -419,8 +422,11 @@ class DocumentParser:
             text_content = "\n\n".join(all_text).strip()
         except Exception as e:
             raise Exception(f"Excel解析失败: {str(e)}")
+        paragraphs = [(line.strip(), i) for i, line in enumerate(text_content.split('\n')) if line.strip()]
         return {
             "content": text_content,
+            "paragraphs": paragraphs,
+            "paragraph_count": len(paragraphs),
             "sheets": sheets_count,
             "file_type": "excel",
             "sha256": self._compute_sha256(file_path),
@@ -495,7 +501,7 @@ class DocumentParser:
         # ── 优先：句末条号收束切分（需要段落信息）──
         if paragraphs and len(paragraphs) > 5:
             articles = _split_by_sentence_end_number(paragraphs)
-            if len(articles) >= 10:
+            if len(articles) >= 3:
                 texts_raw = []
                 for art in articles:
                     if not art.get("content") or len(art["content"]) < 10:
@@ -522,7 +528,7 @@ class DocumentParser:
 
         # 找所有句末 （数字/中文数字） 的位置，按位置切割
         nums_positions = []
-        for m in re.finditer(r'[）)](\d{1,3}|[一二三四五六七八九十百廿卅]+)[）)]', content):
+        for m in re.finditer(r'[（(](\d{1,3}|[一二三四五六七八九十百廿卅]+)[）)]', content):
             num_str = m.group(1)
             num = int(num_str) if num_str.isdigit() else (_CN_NUM_MAP.get(num_str) or 0)
             nums_positions.append((m.end(), num))
