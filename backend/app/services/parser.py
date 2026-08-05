@@ -118,9 +118,21 @@ def _is_chapter_header(text: str) -> bool:
     return False
 
 
+# 异体字归一化映射：文档中的生僻/繁异体 → chapter_meta 标准字符
+_VARIANT_MAP = str.maketrans({
+    '\U00027492': '\u60d1',  # 𧌒 → 惑
+    '\u865b': '\u865a',      # 虛 → 虚
+})
+
+
+def _normalize_chapter(text: str) -> str:
+    """归一化章节名中的异体字"""
+    return text.translate(_VARIANT_MAP)
+
+
 def _parse_chapter(text: str) -> Tuple[str, Optional[str]]:
     """解析章节标题，返回 (chapter_name, section)"""
-    text = text.strip()
+    text = _normalize_chapter(text.strip())
     for pat in _CHAPTER_PATTERNS:
         m = pat.match(text)
         if m:
