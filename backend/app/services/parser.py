@@ -93,13 +93,15 @@ def _extract_sentence_end_number(text: str) -> Optional[int]:
         # 中文数字
         if val in _CN_NUM_MAP:
             return _CN_NUM_MAP[val]
-        # 复合中文数字如 "二十一" → 21
+        # 复合中文数字如 "二十一" → 21, "十三" → 13
         total = 0
         for ch in val:
-            if ch in _CN_NUM_MAP:
+            if ch == '十':
+                total = 10 if total == 0 else total * 10
+            elif ch == '百':
+                total = 100 if total == 0 else total * 100
+            elif ch in _CN_NUM_MAP:
                 total += _CN_NUM_MAP[ch]
-            elif ch == '十':
-                total += 10 if total == 0 else 0  # approximate
         return total if total > 0 else None
     return None
 
@@ -504,7 +506,7 @@ class DocumentParser:
             if len(articles) >= 3:
                 texts_raw = []
                 for art in articles:
-                    if not art.get("content") or len(art["content"]) < 10:
+                    if not art.get("content") or len(art["content"]) < 5:
                         continue
                     texts_raw.append({
                         "article_number": art["article_number"],
