@@ -4,6 +4,9 @@
 from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
+from .logger import get_logger
+
+logger = get_logger(__name__)
 import os
 
 # 数据库文件路径
@@ -83,14 +86,14 @@ def _migrate_columns():
         for col_name, col_type in new_columns.items():
             if col_name not in existing:
                 conn.execute(f"ALTER TABLE classic_texts ADD COLUMN {col_name} {col_type}")
-                print(f"[migrate] 已添加列 classic_texts.{col_name}")
+                logger.info("已添加列 classic_texts.%s", col_name)
 
         # ── documents 新列 ──
         cur = conn.execute("PRAGMA table_info(documents)")
         document_columns = {row[1] for row in cur.fetchall()}
         if "error_message" not in document_columns:
             conn.execute("ALTER TABLE documents ADD COLUMN error_message TEXT")
-            print("[migrate] 已添加列 documents.error_message")
+            logger.info("已添加列 documents.error_message")
         conn.commit()
     finally:
         conn.close()

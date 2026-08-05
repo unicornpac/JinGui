@@ -156,7 +156,7 @@ class TextVerifier:
             if m:
                 return json.loads(m.group())
         except Exception as e:
-            print(f"[Verifier] classify_text error: {e}")
+            logger.warning("classify_text error: %s", e)
         return {}
 
     def verify_single(self, db: Session, text_id: int) -> dict:

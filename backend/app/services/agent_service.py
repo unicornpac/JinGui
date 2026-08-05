@@ -73,7 +73,7 @@ class TrainingAgent:
                 from openai import OpenAI
                 self.client = OpenAI(api_key=self.api_key, base_url=self.base_url) if self.base_url else OpenAI(api_key=self.api_key)
             except ImportError:
-                print("[Agent] openai 未安装")
+                logger.warning("openai 未安装")
 
     @staticmethod
     def _detect_classic_context(medical_case: MedicalCase) -> str:
@@ -111,7 +111,7 @@ class TrainingAgent:
                 model=self.model, messages=msgs, max_tokens=1500, temperature=temperature)
             return self._clean_text(resp.choices[0].message.content)
         except Exception as e:
-            print(f"[Agent] LLM error: {e}")
+            logger.error("LLM error: %s", e)
             for m in ["deepseek-v4-pro", "deepseek/deepseek-v4-flash", "deepseek-ai/deepseek-v3.2"]:
                 if m == self.model: continue
                 try:
@@ -576,7 +576,7 @@ class TrainingAgent:
                 for text, score in scored_texts if score > 0.05
             ]
         except Exception as e:
-            print(f"[Agent] 条文匹配失败: {e}")
+            logger.warning("条文匹配失败: %s", e)
             return []
 
     def _summarize_decision_path(self, session: TrainingSession, messages: List[dict]) -> str:

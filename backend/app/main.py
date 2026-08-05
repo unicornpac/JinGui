@@ -5,12 +5,16 @@ from pathlib import Path
 from urllib.parse import urlencode
 from dotenv import load_dotenv
 
+# logger 必须在最早初始化，因为模块级 .env 加载代码会用到
+from .logger import get_logger, set_request_id
+logger = get_logger(__name__)
+
 # 启动前加载 .env（仅在环境变量未设置时生效，兼容生产环境）
 _BACKEND_DIR = Path(__file__).resolve().parent.parent
 _env_file = _BACKEND_DIR / ".env"
 if _env_file.exists():
     load_dotenv(_env_file, override=False)  # override=False: 环境变量优先
-    print(f"[启动] 已加载 .env: {_env_file}")
+    logger.info(".env 已加载: %s", _env_file)
 
 import os
 
@@ -50,10 +54,19 @@ app.add_middleware(
 )
 
 
+@app.middleware("http")
+async def request_id_middleware(request: Request, call_next):
+    """为每个请求注入 X-Request-ID，贯穿日志和响应头"""
+    rid = request.headers.get("X-Request-ID", "") or os.urandom(8).hex()
+    set_request_id(rid)
+    response = await call_next(request)
+    response.headers["X-Request-ID"] = rid
+    return response
+
+
 # 全局异常处理：确保 500 等错误返回 JSON
 @app.exception_handler(Exception)
 async def global_exception_handler(request, exc):
-    import traceback
     from fastapi.responses import JSONResponse
 
     # FastAPI 内置异常 -> 保留原始状态码（避免 422/401/404 等被吞成 500）
@@ -69,7 +82,7 @@ async def global_exception_handler(request, exc):
         )
 
     # 真正的未预期异常 -> 500
-    traceback.print_exc()
+    logger.exception("未预期的异常")
     return JSONResponse(
         status_code=500,
         content={"detail": str(exc), "type": type(exc).__name__}
@@ -128,7 +141,7 @@ async def health_check():
 async def startup_event():
     """应用启动时初始化数据库"""
     init_db()
-    print("数据库初始化完成")
+    logger.info("数据库初始化完成")
 
 
 @app.get("/")
