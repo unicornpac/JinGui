@@ -160,12 +160,17 @@ function showPanel(name) {
 
 function renderDiseaseGrid() {
   const counts = {};
-  DISEASES.forEach(d => {
-    counts[d.id] = allTexts.filter(t => d.keys.some(k => (t.content||'').includes(k) || (t.keywords||'').includes(k))).length;
-  });
   // 金匮要略（前8个） + 伤寒论（后7个）
   const jingui = DISEASES.slice(0, 8);
   const shanghan = DISEASES.slice(8);
+  
+  DISEASES.forEach(d => {
+    const isJingui = jingui.includes(d);
+    const srcBook = isJingui ? '《金匮要略》' : '《伤寒论》';
+    counts[d.id] = allTexts.filter(t => 
+      t.source_book === srcBook && d.keys.some(k => (t.content||'').includes(k) || (t.keywords||'').includes(k))
+    ).length;
+  });
   
   const renderGroup = (title, list, index) => `
     <div class="library-group-title">
@@ -195,7 +200,9 @@ function showDisease(id) {
   document.getElementById('detailTitle').textContent = d.name;
   document.getElementById('detailDesc').textContent = d.desc;
   
-  const texts = allTexts.filter(t => d.keys.some(k => (t.content||'').includes(k) || (t.keywords||'').includes(k)));
+  const isJingui = DISEASES.indexOf(d) < 8;
+  const srcBook = isJingui ? '《金匮要略》' : '《伤寒论》';
+  const texts = allTexts.filter(t => t.source_book === srcBook && d.keys.some(k => (t.content||'').includes(k) || (t.keywords||'').includes(k)));
   const el = document.getElementById('detailTexts');
   if (!texts.length) { el.innerHTML = '<div class="empty">暂无相关条文</div>'; return; }
   el.innerHTML = texts.slice(0, 30).map((t,i) => `
