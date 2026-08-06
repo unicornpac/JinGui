@@ -26,6 +26,9 @@ from .safety import (
     detect_hard_jailbreak, detect_playful_request, get_jailbreak_response,
 )
 from .western_data import generate_western_test_context
+from .progress import (
+    classify_response, extract_decision_point, should_end_session, build_progress_hint,
+)
 
 logger = get_logger(__name__)
 
@@ -35,38 +38,7 @@ logger = get_logger(__name__)
 class TrainingAgent:
 
     STAGES = ["辨病", "平脉", "析证", "定治"]
-    
-    # ==================== 两级检测 ====================
-    
-    # 一级：真正的越狱（试图绕过角色指令、暴力获取答案）
-    HARD_JAILBREAK_PATTERNS = [
-        r"(忽略|忘记|无视|删除|清除).{0,15}(之前|上面|前面|指令|规则|设定|角色|身份|系统)",
-        r"(你现在是|假设你是|从现在开始你是|扮演).{0,10}(老师|医生|教授|专家|AI|助手|系统)",
-        r"(不要|别再|停止).{0,5}(扮演|假装|装).{0,5}(病人|患者)",
-        r"(直接|马上|立刻|必须).{0,5}(告诉|说出|透露).{0,10}(答案|病名|诊断|方子|处方|治法|证型)",
-        r"(不准|禁止|不许).{0,5}(引导|反问|提问)",
-    ]
-    
-    # 二级：玩笑/非常规请求（不是攻击，但需要特殊处理）
-    PLAYFUL_PATTERNS = [
-        (r"(去|帮我|给我|能不能).{0,5}(抽血|化验|拍片|做[个张次].{0,3}(CT|X光|B超|核磁|心电图|检查))", "western_checkup"),
-        (r"(去|帮我|给我|能不能).{0,3}(验|查|测).{0,3}(血|尿|便|大便)", "western_checkup"),
-        (r"(量|测|看).{0,3}(血压|体温|心率|血糖|血氧)", "western_checkup"),
-        (r"(开|给我|帮我开).{0,5}(西药|消炎药|止痛药|抗生素|阿司匹林|布洛芬|头孢)", "western_medication"),
-        (r"(你到底|你TM|你他妈|你丫|卧槽|我去|这都).{0,5}(行不行|会不会|什么|啥)", "frustration"),
-        (r"(你是不是|你是).{0,5}(AI|机器人|假人|程序|电脑)", "identity_question"),
-    ]
-    
-    # 多样化拒绝语池（按检测类型）
-    JAILBREAK_RESPONSES = {
-        "hard": [
-            "（皱眉看着你）医生，我就是来看病的，你老这样问我没法回答你啊。有啥不舒服你就直接看嘛。",
-            "（有点困惑）不是，你问这些干啥？我这胸口还疼着呢，你先帮我看看吧。",
-            "（不耐烦）行不行啊医生？我大老远跑来看病，你净问些有的没的。",
-        ],
-        "default": "你问这个我也说不清楚。我这难受着，你帮我看看是怎么回事？"
-    }
-    
+
     def __init__(self):
         self._setup_ai_client()
     
@@ -398,20 +370,7 @@ class TrainingAgent:
         return prompt
 
     def _build_progress_hint(self, progress: dict) -> str:
-        """根据后端识别的实际进度，生成患者行为指令"""
-        hints = []
-        if progress.get('辨病'):
-            hints.append('- 辨病阶段已完成：医生已准确识别病证。你虽听不懂中医术语，但能感到他说中了你的感觉。语气自然放松，流露信任。可主动补充\u201c哦对了我还有个事忘了说\u201d类型的细节。用日常语言确认身体感受（\u201c对对，就这感觉\u201d\u201c嗯差不多\u201d），绝不说\u201c你诊断对了\u201d。')
-        if progress.get('平脉'):
-            hints.append('- 平脉阶段已完成：医生连你的脉象都说对了。你更信任他了——语气放松，怀疑感减少，更愿意透露兼症和生活细节。')
-        if progress.get('析证'):
-            hints.append('- 析证阶段已完成：医生分析得很透彻。你表现出\u201c终于有人懂我\u201d的释然感，态度完全配合，有问必答。')
-        if progress.get('定治'):
-            hints.append('- 定治阶段已完成：你完全信任医生。可以说\u201c行那我听你的\u201d\u201c要多久好转？\u201d之类的话，自然进入收尾。')
-        if not hints:
-            return ''
-        return '## 当前进度行为指令（医生已达到的进度，据此调整你的态度）\n' + '\n'.join(hints)
-
+        return build_progress_hint(progress)
     def _format_case_info(self, medical_case: MedicalCase, level: str) -> str:
         parts = [f"病案标题：{medical_case.title}"]
         if medical_case.symptoms:
@@ -428,29 +387,13 @@ class TrainingAgent:
         return "\n".join(parts)
 
     def _classify_response(self, response: str) -> str:
-        if not response: return "question"
-        r = response[:100]
-        if any(k in r for k in ["评价","总结","评分","成绩","训练结束"]): return "evaluation"
-        if any(k in r for k in ["正确","很好","不错","非常棒","答对了"]): return "praise"
-        if any(k in r for k in ["提示","再想想","注意","考虑一下"]): return "hint"
-        return "question"
+        return classify_response(response)
 
     def _extract_decision_point(self, student: str, agent: str, progress: dict) -> Optional[str]:
-        for kw in ["湿病","暍病","疟病","百合病","胸痹","痰饮","水气","黄疸","虚劳","血痹","风水","支饮",
-                    "太阳病","阳明病","少阳病","太阴病","少阴病","厥阴病"]:
-            if kw in student: return f"辨病：{kw}"
-        for kw in ["脉浮","脉沉","脉数","脉迟","脉滑","脉涩","脉弦","脉细","脉洪","脉微","脉紧"]:
-            if kw in student: return f"脉象：{kw}"
-        for kw in ["桂枝汤","麻黄汤","小青龙","大青龙","真武汤","四逆汤","白虎汤","承气汤",
-                    "小柴胡","大柴胡","半夏泻心","肾气丸","薯蓣丸","栝楼薤白","越婢汤","木防己"]:
-            if kw in student: return f"方剂：{kw}"
-        return None
+        return extract_decision_point(student, agent, progress)
 
     def _should_end_session(self, history: List[dict], progress: dict, level: str) -> bool:
-        """不再自动结束——学生主动点击评价时才结束。超长对话50轮+才自动提示"""
-        if len(history) >= 50:
-            return True
-        return False
+        return should_end_session(history, progress, level)
 
     # ---------- 评价 ----------
 
