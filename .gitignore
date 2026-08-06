@@ -21,3 +21,7 @@ __pycache__/
 *.swp
 *.swo
 backups/
+
+# Runtime uploads live under DATA_DIR and must not be versioned.
+backend/uploads/*
+!backend/uploads/.gitkeep
