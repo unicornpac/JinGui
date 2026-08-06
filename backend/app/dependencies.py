@@ -115,7 +115,7 @@ def limit_agent_start(request: Request):
 
 
 def limit_upload(request: Request):
-    return get_limiter().is_allowed(request, 5, 3600)[0] or _raise_429(5, 3600)
+    return get_limiter().is_allowed(request, 20, 3600)[0] or _raise_429(20, 3600)
 
 
 def limit_analysis(request: Request):
