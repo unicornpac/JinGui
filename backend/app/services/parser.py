@@ -108,7 +108,7 @@ def _extract_sentence_end_number(text: str) -> Optional[int]:
 
 def _is_chapter_header(text: str) -> bool:
     """判断是否为章节标题行"""
-    text = text.strip()
+    text = _normalize_chapter(text.strip())
     for pat in _CHAPTER_PATTERNS:
         if pat.match(text):
             return True
@@ -122,6 +122,7 @@ def _is_chapter_header(text: str) -> bool:
 _VARIANT_MAP = str.maketrans({
     '\U00027492': '\u60d1',  # 𧌒 → 惑
     '\u865b': '\u865a',      # 虛 → 虚
+    '\u4e26': '\u5e76',       # 並 → 并
 })
 
 
@@ -472,17 +473,23 @@ class DocumentParser:
 
     def _detect_source_book(self, content: str, filename: str = "") -> str:
         combined = (content[:3000] + " " + filename).lower()
-        if any(kw in combined for kw in ["伤寒论", "伤寒"]):
-            return "《伤寒论》"
+        # 1. 文件名优先：金匮章节特征（如"XX病脉证并治第X"）→ 金匮
+        if re.search(r'病脉证[并治]*[第]?[一二三四五六七八九十百廿卅]+', filename):
+            return "《金匮要略》"
+        # 2. 内容扫描金匮药专属关键词（"金匮"字面不会在伤寒论正文中出现）
         if any(kw in combined for kw in ["金匮", "金匮要略"]):
             return "《金匮要略》"
-        # 通过篇章名模式推断：金匮章节标题（如"XX病脉证并治第X"）→ 金匮
+        # 3. 内容开头包含金匮章节标题（如"XX病脉证并治第X"）→ 金匮
         if re.search(r'病脉证[并治]*[第]?[一二三四五六七八九十百廿卅]+', content[:5000]):
             return "《金匮要略》"
-        # 伤寒论章节标题（辨太阳/阳明等病脉证并治）→ 伤寒
+        # 4. 伤寒论章节标题（辨太阳/阳明等病脉证并治）→ 伤寒
         if re.search(r'辨(太阳|阳明|少阳|太阴|少阴|厥阴|霍乱)病脉证并治', content[:5000]):
             return "《伤寒论》"
-        return "《伤寒论》"
+        # 5. 文件名不含金匮特征，内容出现"伤寒论"→ 伤寒论
+        if any(kw in combined for kw in ["伤寒论"]):
+            return "《伤寒论》"
+        # 6. 无法判断时，返回空让调用方通过其他方式推断
+        return ""
 
     # ── 新版提取入口 ──
 
