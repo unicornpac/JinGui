@@ -47,56 +47,11 @@ def get_db():
 
 
 def init_db():
-    """
-    初始化数据库，创建所有表，并执行轻量迁移（添加新列）
-    """
-    from . import models  # 确保模型已注册到 Base.metadata
-    # 创建新表（已存在的跳过）
-    Base.metadata.create_all(bind=engine)
-    # 对已有表添加可能缺失的新列（SQLite 轻量迁移）
-    _migrate_columns()
+    """初始化数据库 — 通过 Alembic 执行所有迁移（新建表 + 增量变更）"""
+    from alembic.config import Config
+    from alembic import command
 
-
-def _migrate_columns():
-    """为已有表添加新列（如果不存在）；创建新表（如果不存在）"""
-    import sqlite3
-    db_path = os.path.join(DATA_DIR, "tcm.db")
-    if not os.path.exists(db_path):
-        return
-    conn = sqlite3.connect(db_path)
-    try:
-        # ── classic_texts 新列 ──
-        cur = conn.execute("PRAGMA table_info(classic_texts)")
-        existing = {row[1] for row in cur.fetchall()}
-        new_columns = {
-            "section": "VARCHAR(100)",
-            "article_number": "INTEGER",
-            "order_index": "INTEGER",
-            "verified": "BOOLEAN DEFAULT 0",
-            "verified_at": "DATETIME",
-            "source_url": "VARCHAR(500)",
-            "raw_content": "TEXT",
-            "layout_marker": "VARCHAR(10)",
-            "source_file": "VARCHAR(500)",
-            "source_hash": "VARCHAR(64)",
-            "source_offset": "INTEGER",
-            "source_edition": "VARCHAR(200)",
-            "import_batch_id": "VARCHAR(36)",
-        }
-        for col_name, col_type in new_columns.items():
-            if col_name not in existing:
-                conn.execute(f"ALTER TABLE classic_texts ADD COLUMN {col_name} {col_type}")
-                logger.info("已添加列 classic_texts.%s", col_name)
-
-        # ── documents 新列 ──
-        cur = conn.execute("PRAGMA table_info(documents)")
-        document_columns = {row[1] for row in cur.fetchall()}
-        if "error_message" not in document_columns:
-            conn.execute("ALTER TABLE documents ADD COLUMN error_message TEXT")
-            logger.info("已添加列 documents.error_message")
-        conn.commit()
-    finally:
-        conn.close()
-
-    # ── 新表由 SQLAlchemy create_all 自动创建 ──
-    from . import models  # noqa: F401
+    alembic_ini = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "alembic.ini")
+    alembic_cfg = Config(alembic_ini)
+    alembic_cfg.set_main_option("sqlalchemy.url", DATABASE_URL)
+    command.upgrade(alembic_cfg, "head")
