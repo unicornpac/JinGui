@@ -6,8 +6,8 @@ from logging.config import fileConfig
 from sqlalchemy import engine_from_config, pool
 from alembic import context
 
-# 加入项目根目录以便导入 app 模块
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+# 加入 backend 目录以便导入 app 模块
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
 
 from app.database import Base, DATA_DIR
 
