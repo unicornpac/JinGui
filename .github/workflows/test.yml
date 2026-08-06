@@ -31,13 +31,18 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: 运行测试（含覆盖率）
-        run: python -m pytest tests/ --cov --cov-report=term-missing --tb=short -v
+      - name: 环境诊断
+        run: |
+          echo "=== Python ===" && python --version
+          echo "=== pwd ===" && pwd
+          echo "=== alembic.ini ===" && ls -la ../alembic.ini 2>/dev/null || echo "NOT FOUND"
+          echo "=== alembic 包 ===" && python -c "import alembic; print(alembic.__version__)" 2>&1
+          echo "=== 应用导入 ===" && python -c "from app.main import app; print('OK')" 2>&1
 
-      - name: 生成覆盖率报告
-        run: python -m pytest tests/ --cov --cov-report=html --tb=line
+      - name: 运行测试
+        run: python -m pytest tests/ --cov --cov-report=term-missing --tb=short -q
 
-      - name: 上传覆盖率 HTML 报告
+      - name: 上传覆盖率报告
         uses: actions/upload-artifact@v5
         with:
           name: coverage-report
