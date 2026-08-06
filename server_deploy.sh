@@ -41,6 +41,7 @@ FILES=(
   "alembic.ini"
   "alembic/env.py"
   "alembic/script.py.mako"
+  "alembic/versions/bb356c8cc735_initial.py"
   "app/routers/agent.py"
   "app/routers/documents.py"
   "app/routers/texts.py"
