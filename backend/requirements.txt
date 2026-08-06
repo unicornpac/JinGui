@@ -13,4 +13,5 @@ openai>=1.0.0
 requests>=2.31.0
 pytest>=8.0.0
 pytest-cov>=5.0.0
-httpx>=0.26,<0.28alembic>=1.13
+httpx>=0.26,<0.28
+alembic>=1.13
