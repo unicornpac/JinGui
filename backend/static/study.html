@@ -37,7 +37,7 @@ body{font-family:-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;backgr
 .text-item .content{font-size:15px;line-height:1.8}
 .text-item .ai-btn{margin-top:8px;padding:6px 14px;background:#8b5a2b;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px}
 .text-item .ai-btn:hover{background:#6b3f1a}
-.text-item .ai-result{display:none;margin-top:8px;padding:12px;background:#f0e2cc;border-radius:8px;font-size:14px;line-height:1.7}
+.text-item .ai-result{display:none;margin-top:8px;padding:12px;background:#f0e2cc;border-radius:8px;font-size:14px;line-height:1.7;white-space:pre-line}
 .text-item .ai-result.show{display:block}
 
 .search-row{display:flex;gap:10px;margin-bottom:16px}
@@ -234,13 +234,29 @@ async function aiExplain(ev, textId, idx, diseaseId) {
   try {
     const resp = await fetch(`${API}/analysis/query`, {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ text: `作为中医教学助手，请对以下条文进行简明解读（控制在200字以内）。\n\n病证背景：${d?d.name+'——'+d.desc:''}\n条文：${t.content}\n来源：${t.source_book} ${t.chapter||''}\n\n请从：核心含义、辨证要点、临床应用三个角度简要说明。` })
+      body: JSON.stringify({ text: `作为中医教学助手，请对以下条文进行简明解读（控制在200字以内）。\n\n病证背景：${d ? `${d.name}。${d.desc}` : '无'}\n条文：${t.content}\n来源：${t.source_book} ${t.chapter||''}\n\n请按“核心含义：”“辨证要点：”“临床应用：”三个普通段落简要说明。不要使用 Markdown、星号、长横线或分隔线。` })
     });
     const data = await resp.json();
-    box.textContent = data.analysis_result || '解读失败';
+    box.textContent = cleanAnalysisText(data.analysis_result) || '解读失败';
   } catch(e) {
     box.textContent = 'AI 解读失败';
   }
+}
+
+function cleanAnalysisText(value) {
+  return String(value || '')
+    .replace(/\r\n?/g, '\n')
+    .replace(/```[^\n]*/g, '')
+    .replace(/^\s{0,3}#{1,6}\s*/gm, '')
+    .replace(/^\s*>\s?/gm, '')
+    .replace(/^\s*[-+*•]\s+/gm, '')
+    .replace(/^\s*(?:[-—–_=*]){3,}\s*$/gm, '')
+    .replace(/~~([^~\n]+)~~/g, '$1')
+    .replace(/\*+/g, '')
+    .replace(/`/g, '')
+    .replace(/[—–]{2,}/g, '，')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
 
 function doSearch() {

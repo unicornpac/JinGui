@@ -4,6 +4,7 @@ AI分析服务
 """
 import os
 import json
+import re
 from pathlib import Path
 from typing import Optional, Dict
 from dotenv import load_dotenv
@@ -14,6 +15,30 @@ load_dotenv(_backend_dir / ".env", override=False)
 
 from ..logger import get_logger
 logger = get_logger(__name__)
+
+
+PLAIN_TEXT_OUTPUT_INSTRUCTION = """输出为适合直接阅读的纯中文文本。请使用“核心含义：”“辨证要点：”等普通段落，不要使用 Markdown、星号、井号、反引号、长横线、分隔线、项目符号或代码块。"""
+
+
+def clean_analysis_output(text: str) -> str:
+    """将模型的 Markdown 风格输出收敛为界面可直接展示的纯文本。"""
+    if not text:
+        return ""
+
+    cleaned = str(text).replace("\r\n", "\n").replace("\r", "\n")
+    cleaned = re.sub(r"```[^\n]*", "", cleaned)
+    cleaned = re.sub(r"^\s{0,3}#{1,6}\s*", "", cleaned, flags=re.MULTILINE)
+    cleaned = re.sub(r"^\s*>\s?", "", cleaned, flags=re.MULTILINE)
+    cleaned = re.sub(r"^\s*[-+*•]\s+", "", cleaned, flags=re.MULTILINE)
+    cleaned = re.sub(r"^\s*(?:[-—–_=*]){3,}\s*$", "", cleaned, flags=re.MULTILINE)
+    cleaned = re.sub(r"~~([^~\n]+)~~", r"\1", cleaned)
+    cleaned = re.sub(r"(?<!\w)_{1,3}([^_\n]+)_{1,3}(?!\w)", r"\1", cleaned)
+    cleaned = cleaned.replace("*", "").replace("`", "")
+    cleaned = re.sub(r"[—–]{2,}", "，", cleaned)
+    cleaned = re.sub(r"[ \t]+\n", "\n", cleaned)
+    cleaned = re.sub(r"\n[ \t]+", "\n", cleaned)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned.strip()
 
 
 class AIService:
@@ -91,7 +116,8 @@ class AIService:
 4. 辨证要点：总结辨证的关键要点
 5. 临床应用价值：说明这个条文对理解此病案的指导意义
 
-请用专业但易懂的中文回答，结构清晰，条理分明。"""
+请用专业但易懂的中文回答，结构清晰，条理分明。
+{PLAIN_TEXT_OUTPUT_INSTRUCTION}"""
             else:
                 user_content = f"""请作为中医专家，对以下经典条文进行解读分析：
 
@@ -105,7 +131,8 @@ class AIService:
 4. 辨证要点与临床应用
 5. 学习建议
 
-请用专业但易懂的中文回答，结构清晰，条理分明。"""
+请用专业但易懂的中文回答，结构清晰，条理分明。
+{PLAIN_TEXT_OUTPUT_INSTRUCTION}"""
             
             # 使用 messages + result_format=text，直接返回 output.text
             response = dashscope.Generation.call(
@@ -128,7 +155,7 @@ class AIService:
                 if not analysis:
                     analysis = str(response.output) if response.output else "分析结果为空"
                 return {
-                    "analysis": analysis,
+                    "analysis": clean_analysis_output(analysis),
                     "model": "qwen-turbo",
                     "success": True
                 }
@@ -173,14 +200,16 @@ class AIService:
 【病案】
 {case}
 
-请从病机对应、症状匹配、方剂应用、辨证要点、临床应用价值等角度详细分析。用专业但易懂的中文回答。"""
+请从病机对应、症状匹配、方剂应用、辨证要点、临床应用价值等角度详细分析。用专业但易懂的中文回答。
+{PLAIN_TEXT_OUTPUT_INSTRUCTION}"""
             else:
                 user_content = f"""请作为中医专家，对以下经典条文进行解读分析：
 
 【经典条文】
 {text}
 
-请从条文出处、病机证候、症状特征、辨证要点、临床应用等角度分析。用专业但易懂的中文回答。"""
+请从条文出处、病机证候、症状特征、辨证要点、临床应用等角度分析。用专业但易懂的中文回答。
+{PLAIN_TEXT_OUTPUT_INSTRUCTION}"""
             # 自定义端点：Linvk 等用 deepseek-chat；官方 OpenAI 用 gpt-3.5-turbo
             default_model = "gpt-3.5-turbo" if use_openai_official else os.getenv("AI_MODEL", "deepseek-chat")
             model = (model_override or default_model).strip()
@@ -197,7 +226,7 @@ class AIService:
                         temperature=0.7
                     )
                     analysis = resp.choices[0].message.content
-                    return {"analysis": analysis, "model": m, "success": True}
+                    return {"analysis": clean_analysis_output(analysis), "model": m, "success": True}
                 except Exception as e:
                     last_err = str(e)
                     logger.warning("模型 %s 调用失败: %s", m, last_err)
@@ -243,7 +272,8 @@ class AIService:
 4. 辨证要点
 5. 临床应用价值
 
-请用专业但易懂的中文回答。"""
+请用专业但易懂的中文回答。
+{PLAIN_TEXT_OUTPUT_INSTRUCTION}"""
             
             api_url = f"https://aip.baidubce.com/rpc/2.0/ai_custom/v1/wenxinworkshop/chat/completions?access_token={access_token}"
             payload = {
@@ -262,7 +292,7 @@ class AIService:
             
             if "result" in result:
                 return {
-                    "analysis": result["result"],
+                    "analysis": clean_analysis_output(result["result"]),
                     "model": "ernie-bot",
                     "success": True
                 }
@@ -301,7 +331,7 @@ class AIService:
 注意：AI API 未配置或调用失败，以上为占位分析。{err_note}
         """
         return {
-            "analysis": analysis.strip(),
+            "analysis": clean_analysis_output(analysis),
             "model": "default",
             "success": False,
             "message": error or "未配置AI API"

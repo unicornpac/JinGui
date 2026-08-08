@@ -8,7 +8,7 @@ from ..database import get_db
 from ..dependencies import verify_admin, limit_analysis
 from ..models import ClassicText, MedicalCase, LearningHistory
 from ..schemas import AnalysisQuery, AnalysisResponse, MedicalCaseResponse
-from ..services.ai_service import get_ai_service
+from ..services.ai_service import clean_analysis_output, get_ai_service
 from ..services.matcher import get_matcher
 
 router = APIRouter()
@@ -163,6 +163,9 @@ async def analyze_text(
         analysis_result = ai_result.get("analysis", "")
         if len(analysis_result) < 100:
             analysis_result += "\n\n【提示】未在数据库中找到相关病案。建议添加病案后再次分析，可获得条文与病案的关联解读。"
+
+    # 所有提供方和追加说明都通过同一纯文本处理，供条文学习页直接展示。
+    analysis_result = clean_analysis_output(analysis_result)
     
     # 4. 保存学习记录
     history = LearningHistory(
