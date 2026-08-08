@@ -246,6 +246,12 @@ body {
     <div class="eval-score" id="evalScore">--</div>
     <div class="eval-detail" id="evalDetail"></div>
     <div class="eval-text" id="evalText"></div>
+    <div id="safetyReview" style="display:none;border-radius:10px;padding:14px;margin:14px 0;border:1px solid #d9c4a7;background:#faf7f0;">
+      <h4 id="safetyReviewTitle" style="margin:0 0 8px;"></h4>
+      <div id="safetyReviewSummary" style="font-size:14px;line-height:1.7;"></div>
+      <ul id="safetyReviewDetails" style="margin:8px 0 0;padding-left:20px;font-size:13px;line-height:1.7;"></ul>
+      <div style="font-size:12px;color:#8a7a6a;margin-top:8px;">仅用于训练复盘，不构成真实诊疗或用药建议。</div>
+    </div>
     <div class="case-reveal" id="caseReveal" style="display:none;background:#f0e2cc;border:2px solid #8b5a2b;border-radius:10px;padding:16px;margin:14px 0;">
       <h4 style="color:#5c3d2e;margin-bottom:8px;">病案揭晓</h4>
       <div id="caseTitle" style="font-weight:600;margin-bottom:6px;"></div>
@@ -375,6 +381,7 @@ async function sendMessage() {
     }
     
     if (data.session_status === 'completed') {
+      sessionActive = false;
       addMessage('system', '对话已达上限，建议点击左侧「结束训练 & 查看评价」获取报告。');
       document.getElementById('infoStatus').textContent = '建议评价';
     }
@@ -418,22 +425,47 @@ async function evaluateSession() {
     let evalData;
     try { evalData = JSON.parse(data.evaluation); } catch(e) { evalData = null; }
     
-    if (evalData && evalData.综合评分) {
+    if (evalData && Object.prototype.hasOwnProperty.call(evalData, '综合评分')) {
       document.getElementById('evalScore').textContent = evalData.综合评分 + '分';
       document.getElementById('evalDetail').innerHTML = `
-        <div class="eval-item"><span class="eval-label">辨病准确度</span><span class="eval-value">${evalData['辨病准确度']||'--'}分</span></div>
-        <div class="eval-item"><span class="eval-label">辨证思路清晰度</span><span class="eval-value">${evalData['辨证思路清晰度']||'--'}分</span></div>
-        <div class="eval-item"><span class="eval-label">方证对应合理性</span><span class="eval-value">${evalData['方证对应合理性']||'--'}分</span></div>
-        <div class="eval-item"><span class="eval-label">思辨能力等级</span><span class="eval-value">${evalData['思辨能力等级']||'--'}</span></div>
+        <div class="eval-item"><span class="eval-label">辨病准确度</span><span class="eval-value">${escHtml(String(evalData['辨病准确度']||'--'))}分</span></div>
+        <div class="eval-item"><span class="eval-label">平脉分析度</span><span class="eval-value">${escHtml(String(evalData['平脉分析度']||'--'))}分</span></div>
+        <div class="eval-item"><span class="eval-label">析证清晰度</span><span class="eval-value">${escHtml(String(evalData['析证清晰度']||'--'))}分</span></div>
+        <div class="eval-item"><span class="eval-label">定治合理性</span><span class="eval-value">${escHtml(String(evalData['定治合理性']||'--'))}分</span></div>
+        <div class="eval-item"><span class="eval-label">框架完整度</span><span class="eval-value">${escHtml(String(evalData['框架完整度']||'--'))}分</span></div>
+        <div class="eval-item"><span class="eval-label">思辨能力等级</span><span class="eval-value">${escHtml(String(evalData['思辨能力等级']||'--'))}</span></div>
       `;
       document.getElementById('evalText').innerHTML = `
-        <strong>优点：</strong>${evalData['优点']||'--'}<br><br>
-        <strong>改进建议：</strong>${evalData['改进建议']||'--'}
+        <strong>优点：</strong>${escHtml(String(evalData['优点']||'--'))}<br><br>
+        <strong>改进建议：</strong>${escHtml(String(evalData['改进建议']||'--'))}
       `;
     } else {
       document.getElementById('evalScore').textContent = data.score || '--';
       document.getElementById('evalDetail').innerHTML = '';
       document.getElementById('evalText').textContent = data.evaluation || '评价生成中…';
+    }
+
+    const safety = data.safety_feedback;
+    const safetyReview = document.getElementById('safetyReview');
+    if (safety) {
+      const palette = {
+        critical: ['#fff0f0', '#c0392b'],
+        warning: ['#fff8e7', '#a66a00'],
+        pass: ['#eff8ef', '#2d7a3e'],
+        info: ['#f1f5fb', '#40658c']
+      };
+      const [background, color] = palette[safety.level] || palette.info;
+      safetyReview.style.display = 'block';
+      safetyReview.style.background = background;
+      safetyReview.style.borderColor = color;
+      document.getElementById('safetyReviewTitle').textContent = safety.title || '治疗方案复盘';
+      document.getElementById('safetyReviewTitle').style.color = color;
+      document.getElementById('safetyReviewSummary').textContent = safety.summary || '';
+      const details = Array.isArray(safety.details) ? safety.details : [];
+      document.getElementById('safetyReviewDetails').innerHTML = details
+        .map(item => `<li>${escHtml(String(item))}</li>`).join('');
+    } else {
+      safetyReview.style.display = 'none';
     }
     
     // 显示相关经典条文

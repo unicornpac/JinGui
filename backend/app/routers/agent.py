@@ -157,7 +157,16 @@ async def evaluate_session(
     
     case = session.case
     
-    if session.status == "completed":
+    # 自动到达轮次上限的会话会先标记 completed，但尚未生成评价，仍应允许首次评价。
+    if session.status == "completed" and session.score is not None:
+        from ..services.treatment_safety import assess_treatment_safety
+        messages = [
+            {
+                "role": "user" if message.role == "student" else "assistant",
+                "content": message.content,
+            }
+            for message in session.messages
+        ]
         return SessionEvaluateResponse(
             session_id=session.id,
             score=session.score or "未评分",
@@ -165,7 +174,10 @@ async def evaluate_session(
             decision_path=session.decision_path or "",
             case_title=case.title if case else None,
             case_correct_answer=case.correct_answer if case else None,
-            related_texts=[]
+            related_texts=[],
+            safety_feedback=assess_treatment_safety(
+                messages, case.prescription if case else None
+            ),
         )
     
     try:
@@ -177,7 +189,8 @@ async def evaluate_session(
             decision_path=result["decision_path"],
             case_title=case.title if case else None,
             case_correct_answer=case.correct_answer if case else None,
-            related_texts=result.get("related_texts", [])
+            related_texts=result.get("related_texts", []),
+            safety_feedback=result.get("safety_feedback"),
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

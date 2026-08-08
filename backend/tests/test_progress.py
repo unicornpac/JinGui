@@ -92,8 +92,7 @@ class TestAnalyzeProgressIntermediate:
             {"role": "user", "content": "这是胸痹吧"},
             {"role": "user", "content": "脉沉迟"},
         ]
-        with patch.object(agent, '_ai_check_progress', return_value={}):
-            progress = agent._analyze_progress(history, intermediate_session)
+        progress = agent._analyze_progress(history, intermediate_session)
 
         assert progress["辨病"] is True
         assert progress["平脉"] is True
@@ -106,8 +105,11 @@ class TestAnalyzeProgressIntermediate:
             {"role": "user", "content": "脉沉迟"},
             {"role": "user", "content": "栝楼薤白白酒汤"},
         ]
-        with patch.object(agent, '_ai_check_progress', return_value={}):
-            progress = agent._analyze_progress(history, intermediate_session)
+        progress = agent._analyze_progress(
+            history,
+            intermediate_session,
+            treatment_assessment={"matches_expected": True},
+        )
 
         assert progress["辨病"] is True
         assert progress["平脉"] is True
@@ -124,13 +126,34 @@ class TestAnalyzeProgressAdvanced:
             {"role": "user", "content": "脉弦数"},
             {"role": "user", "content": "桂枝汤"},
         ]
-        with patch.object(agent, '_ai_check_progress', return_value={}):
-            progress = agent._analyze_progress(history, advanced_session)
+        progress = agent._analyze_progress(
+            history,
+            advanced_session,
+            treatment_assessment={"matches_expected": True},
+        )
 
         assert progress["辨病"] is True
         assert progress["平脉"] is True
         assert progress["析证"] is True
+        assert progress["定治"] is True
         assert progress["current_stage"] == "定治"
+
+    def test_wrong_formula_does_not_complete_treatment(self, agent, advanced_session):
+        history = [
+            {"role": "user", "content": "你哪里不舒服"},
+            {"role": "user", "content": "黄疸"},
+            {"role": "user", "content": "脉弦数"},
+            {"role": "user", "content": "桂枝汤"},
+        ]
+        progress = agent._analyze_progress(
+            history,
+            advanced_session,
+            treatment_assessment={"treatment_proposed": True, "matches_expected": False},
+        )
+
+        assert progress["辨病"] is True
+        assert progress["平脉"] is True
+        assert progress["定治"] is False
 
 
 class TestAIProgressMerge:
@@ -143,8 +166,9 @@ class TestAIProgressMerge:
             {"role": "user", "content": "你觉得怎么样"},
         ]
         ai_result = {"辨病": True, "平脉": False, "current_stage": "主证识别"}
-        with patch.object(agent, '_ai_check_progress', return_value=ai_result):
-            progress = agent._analyze_progress(history, beginner_session)
+        progress = agent._analyze_progress(
+            history, beginner_session, ai_progress=ai_result
+        )
 
         assert progress["辨病"] is True  # AI 补上了
         assert progress["current_stage"] == "主证识别"

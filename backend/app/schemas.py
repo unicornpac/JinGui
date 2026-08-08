@@ -200,6 +200,7 @@ class SessionEvaluateResponse(BaseModel):
     case_title: Optional[str] = Field(None, description="病案标题（训练结束后揭晓）")
     case_correct_answer: Optional[str] = Field(None, description="参考答案（训练结束后揭晓）")
     related_texts: Optional[List[dict]] = Field(None, description="相关经典条文（含出处和原文）")
+    safety_feedback: Optional[dict] = Field(None, description="训练用药安全复盘（非真实诊疗建议）")
 
 
 class PublicStatsResponse(BaseModel):

@@ -29,8 +29,15 @@ from .western_data import generate_western_test_context
 from .progress import (
     classify_response, extract_decision_point, should_end_session, build_progress_hint,
 )
+from .treatment_safety import (
+    assess_treatment_message, assess_treatment_safety, build_patient_treatment_context,
+)
 
 logger = get_logger(__name__)
+
+DASHSCOPE_COMPATIBLE_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+DEFAULT_TIMEOUT_SECONDS = 45
+DEFAULT_PROGRESS_CHECK_INTERVAL = 3
 
 
 # ==================== 智能体服务类 ====================
@@ -41,16 +48,68 @@ class TrainingAgent:
 
     def __init__(self):
         self._setup_ai_client()
-    
+
+    @staticmethod
+    def _get_bounded_env_int(name: str, default: int, minimum: int, maximum: int) -> int:
+        """读取整数配置；异常或越界时回退到安全默认值。"""
+        try:
+            value = int(os.getenv(name, str(default)))
+        except (TypeError, ValueError):
+            return default
+        return min(max(value, minimum), maximum)
+
+    @staticmethod
+    def _get_model_list(value: str) -> List[str]:
+        """将逗号分隔的模型列表标准化，并移除重复项。"""
+        models = []
+        for model in (value or "").split(","):
+            model = model.strip()
+            if model and model not in models:
+                models.append(model)
+        return models
+
     def _setup_ai_client(self):
-        self.api_key = (os.getenv("OPENAI_API_KEY") or "").strip()
-        self.base_url = (os.getenv("OPENAI_BASE_URL") or "").strip().rstrip("/") or None
-        self.model = os.getenv("AI_MODEL", "deepseek-chat").strip()
+        openai_key = (os.getenv("OPENAI_API_KEY") or "").strip()
+        dashscope_key = (os.getenv("DASHSCOPE_API_KEY") or "").strip()
+        configured_base_url = (os.getenv("OPENAI_BASE_URL") or "").strip().rstrip("/") or None
+
+        self.provider = "openai" if openai_key else ("dashscope" if dashscope_key else None)
+        self.api_key = openai_key or dashscope_key
+        self.base_url = configured_base_url
+        if not self.base_url and self.provider == "dashscope":
+            self.base_url = DASHSCOPE_COMPATIBLE_BASE_URL
+
+        if self.provider == "dashscope" and not configured_base_url:
+            default_model = "qwen-turbo"
+        elif self.provider == "openai" and not configured_base_url:
+            default_model = "gpt-4o-mini"
+        else:
+            # 兼容现有自定义网关（例如 DeepSeek/OpenAI 兼容端点）。
+            default_model = "deepseek-chat"
+        self.model = ((os.getenv("AI_MODEL") or "").strip() or default_model)
+        self.timeout_seconds = self._get_bounded_env_int(
+            "AI_TIMEOUT_SECONDS", DEFAULT_TIMEOUT_SECONDS, 5, 120
+        )
+        self.progress_check_interval = self._get_bounded_env_int(
+            "AI_PROGRESS_CHECK_INTERVAL", DEFAULT_PROGRESS_CHECK_INTERVAL, 2, 10
+        )
+        self.fallback_models = [
+            model for model in self._get_model_list(os.getenv("AI_FALLBACK_MODELS", ""))
+            if model != self.model
+        ]
         self.client = None
         if self.api_key:
             try:
                 from openai import OpenAI
-                self.client = OpenAI(api_key=self.api_key, base_url=self.base_url) if self.base_url else OpenAI(api_key=self.api_key)
+                client_options = {
+                    "api_key": self.api_key,
+                    "timeout": self.timeout_seconds,
+                    # 由本服务控制模型回退，避免 SDK 隐式重试导致响应时间不可预测。
+                    "max_retries": 0,
+                }
+                if self.base_url:
+                    client_options["base_url"] = self.base_url
+                self.client = OpenAI(**client_options)
             except ImportError:
                 logger.warning("openai 未安装")
 
@@ -78,31 +137,44 @@ class TrainingAgent:
             return "《金匮要略》与《伤寒论》——两者本为一体，请根据病证自然引用相关条文"
 
     def _call_llm(self, system_prompt: str, messages_history: List[dict],
-                  user_message: str = None, temperature: float = 0.7) -> str:
+                  user_message: str = None, temperature: float = 0.7,
+                  max_tokens: int = 1500, allow_fallbacks: bool = True) -> str:
         if not self.client:
             return self._fallback_response(user_message)
         msgs = [{"role": "system", "content": system_prompt}]
         msgs.extend(messages_history)
-        if user_message:
+        if user_message is not None:
             msgs.append({"role": "user", "content": user_message})
-        try:
-            resp = self.client.chat.completions.create(
-                model=self.model, messages=msgs, max_tokens=1500, temperature=temperature)
-            return self._clean_text(resp.choices[0].message.content)
-        except Exception as e:
-            logger.error("LLM error: %s", e)
-            for m in ["deepseek-v4-pro", "deepseek/deepseek-v4-flash", "deepseek-ai/deepseek-v3.2"]:
-                if m == self.model: continue
-                try:
-                    resp = self.client.chat.completions.create(
-                        model=m, messages=msgs, max_tokens=1500, temperature=temperature)
-                    return self._clean_text(resp.choices[0].message.content)
-                except Exception: continue
-            return self._fallback_response(user_message, str(e))
+
+        models_to_try = [self.model]
+        if allow_fallbacks:
+            models_to_try.extend(self.fallback_models)
+
+        last_error = None
+        for model in models_to_try:
+            try:
+                resp = self.client.chat.completions.create(
+                    model=model,
+                    messages=msgs,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    timeout=self.timeout_seconds,
+                )
+                content = self._clean_text(resp.choices[0].message.content)
+                if content:
+                    return content
+                raise ValueError("模型返回空内容")
+            except Exception as exc:
+                last_error = exc
+                logger.warning("LLM 调用失败（模型 %s）: %s", model, exc)
+
+        logger.error("LLM 请求失败，尝试模型：%s", ", ".join(models_to_try))
+        return self._fallback_response(user_message, str(last_error) if last_error else None)
 
     def _fallback_response(self, user_msg: str = None, error: str = None) -> str:
         if error:
-            return f"【系统提示】AI 服务暂时不可用（{error}）。请稍后再试。"
+            # 详细错误已记录在服务器日志，不向学生暴露上游地址、模型或异常细节。
+            return "【系统提示】AI 服务暂时不可用，请稍后再试。"
         return "【系统提示】智能体服务暂未就绪。"
 
     @staticmethod
@@ -132,6 +204,17 @@ class TrainingAgent:
     def _generate_western_test_context(self, case: MedicalCase) -> str:
         """西医检查数据 → 委托 western_data 模块"""
         return generate_western_test_context(case)
+
+    def _should_check_ai_progress(self, history: List[dict], progress: dict) -> bool:
+        """仅按固定学生轮次做一次轻量 AI 进度复核，避免每轮额外调用模型。"""
+        if not self.client or all(progress.get(stage) for stage in self.STAGES):
+            return False
+        student_turns = sum(1 for message in history if message.get("role") == "user")
+        return (
+            student_turns >= self.progress_check_interval
+            and student_turns % self.progress_check_interval == 0
+        )
+
     def _ai_check_progress(self, medical_case: MedicalCase, history: List[dict],
                             difficulty: str) -> dict:
         if not self.client or len(history) < 2:
@@ -149,7 +232,14 @@ class TrainingAgent:
 输出JSON：{{"辨病":"是/否","平脉":"是/否","析证":"是/否","定治":"是/否","当前阶段":"辨病/平脉/析证/定治"}}
 只输出JSON。"""
         try:
-            resp = self._call_llm("你是教学评估专家。只输出JSON。", [], prompt, temperature=0.1)
+            resp = self._call_llm(
+                "你是教学评估专家。只输出JSON。",
+                [],
+                prompt,
+                temperature=0.1,
+                max_tokens=240,
+                allow_fallbacks=False,
+            )
             json_match = re.search(r'\{[\s\S]*\}', resp)
             if json_match:
                 result = json.loads(json_match.group())
@@ -233,16 +323,50 @@ class TrainingAgent:
                                          content=student_content, message_type="question")
             db.add(student_msg); db.commit()
             history = self._get_history_messages(session_id, db)
-            progress = self._analyze_progress(history, session)
+            current_treatment = assess_treatment_message(
+                student_content, medical_case.prescription
+            )
+            treatment_assessment = assess_treatment_safety(
+                history, medical_case.prescription
+            )
+            progress = self._analyze_progress(
+                history, session, treatment_assessment=treatment_assessment
+            )
+            should_check_progress = self._should_check_ai_progress(history, progress)
+            should_check_progress = should_check_progress or (
+                current_treatment["treatment_proposed"]
+                and current_treatment["level"] != "critical"
+            )
+            if should_check_progress:
+                ai_progress = self._ai_check_progress(
+                    medical_case, history, session.difficulty_level
+                )
+                progress = self._analyze_progress(
+                    history,
+                    session,
+                    ai_progress=ai_progress,
+                    treatment_assessment=treatment_assessment,
+                )
+
+            # history 已包含刚存入的学生消息；传给 _call_llm 时只追加一次当前输入。
+            reply_history = self._history_before_current_input(history, student_content)
             
             # 构建系统提示词，如果检测到玩笑请求则注入额外上下文
             system_prompt = self._build_system_prompt(session, medical_case, progress)
-            extra_context = ""
+            extra_contexts = []
             if playful_type:
-                extra_context = self._build_playful_context(playful_type, medical_case)
-                system_prompt = extra_context + "\n\n" + system_prompt
+                extra_contexts.append(
+                    self._build_playful_context(playful_type, medical_case)
+                )
+            treatment_context = build_patient_treatment_context(current_treatment)
+            if treatment_context:
+                extra_contexts.append(treatment_context)
+            if extra_contexts:
+                system_prompt = "\n\n".join(extra_contexts + [system_prompt])
             
-            agent_response = self._call_llm(system_prompt, history, student_content) or "【系统】AI 返回为空，请重新发送消息。"
+            agent_response = self._call_llm(
+                system_prompt, reply_history, student_content
+            ) or "【系统】AI 返回为空，请重新发送消息。"
             msg_type = self._classify_response(agent_response)
             
             decision_path = session.decision_path or ""
@@ -258,6 +382,10 @@ class TrainingAgent:
             
             should_end = self._should_end_session(history, progress, session.difficulty_level)
             session_status = "completed" if should_end else "active"
+            if should_end:
+                session.status = "completed"
+                session.ended_at = datetime.now()
+                db.commit()
         
         return agent_response, msg_type, session_status, progress
     
@@ -296,10 +424,25 @@ class TrainingAgent:
 
     def _get_history_messages(self, session_id: int, db: Session) -> List[dict]:
         messages = db.query(SessionMessage).filter(
-            SessionMessage.session_id == session_id).order_by(SessionMessage.created_at).all()
+            SessionMessage.session_id == session_id).order_by(
+                SessionMessage.created_at, SessionMessage.id
+            ).all()
         return [{"role": "assistant" if m.role == "agent" else ("user" if m.role == "student" else m.role), "content": m.content} for m in messages[-20:]]
 
-    def _analyze_progress(self, history: List[dict], session: TrainingSession) -> dict:
+    @staticmethod
+    def _history_before_current_input(history: List[dict], student_content: str) -> List[dict]:
+        """移除刚持久化的当前输入，避免它在模型上下文中出现两次。"""
+        if (
+            history
+            and history[-1].get("role") == "user"
+            and history[-1].get("content") == student_content
+        ):
+            return history[:-1]
+        return list(history)
+
+    def _analyze_progress(self, history: List[dict], session: TrainingSession,
+                          ai_progress: Optional[dict] = None,
+                          treatment_assessment: Optional[dict] = None) -> dict:
         progress = {"辨病": False, "平脉": False, "析证": False, "定治": False,
                     "message_count": len(history), "current_stage": "辨病"}
         all_text = " ".join([m.get("content", "") for m in history[-10:]])
@@ -310,11 +453,9 @@ class TrainingAgent:
             "太阳病","阳明病","少阳病","太阴病","少阴病","厥阴病"])
         pulse_hit = any(k in all_text for k in [
             "脉浮","脉沉","脉数","脉迟","脉滑","脉涩","脉弦","脉细","脉洪","脉微","脉紧","脉缓","脉弱"])
-        formula_hit = any(k in all_text for k in [
-            "桂枝汤","麻黄汤","小青龙","大青龙","真武汤","四逆汤",
-            "白虎汤","承气汤","小柴胡","大柴胡","半夏泻心",
-            "肾气丸","薯蓣丸","黄芪桂枝五物","桂枝芍药知母",
-            "栝楼薤白","越婢汤","射干麻黄","木防己","桂枝附子"])
+        treatment_matches_expected = bool(
+            treatment_assessment and treatment_assessment.get("matches_expected")
+        )
 
         if session.difficulty_level == "初级":
             if disease_hit and len(history) >= 2:
@@ -324,20 +465,28 @@ class TrainingAgent:
                 progress["辨病"] = True; progress["current_stage"] = "平脉"
             if disease_hit and pulse_hit:
                 progress["平脉"] = True; progress["current_stage"] = "析证"
-            if disease_hit and pulse_hit and formula_hit:
+            if disease_hit and pulse_hit and treatment_matches_expected:
                 progress["析证"] = True
         else:
             if disease_hit and len(history) >= 2:
                 progress["辨病"] = True
             if disease_hit and pulse_hit:
                 progress["平脉"] = True; progress["current_stage"] = "析证"
-            if disease_hit and pulse_hit and formula_hit:
-                progress["析证"] = True; progress["current_stage"] = "定治"
+            if disease_hit and pulse_hit and treatment_matches_expected:
+                progress["析证"] = True
+                progress["定治"] = True
+                progress["current_stage"] = "定治"
 
-        # AI 辅助判断
-        ai_progress = self._ai_check_progress(session.case, history, session.difficulty_level)
+        # AI 辅助结果只在调用方按间隔触发后传入；它只能补足进度，不能回退已识别的步骤。
         if ai_progress:
+            allow_ai_treatment_completion = not (
+                treatment_assessment
+                and treatment_assessment.get("treatment_proposed")
+                and not treatment_assessment.get("matches_expected")
+            )
             for k in ["辨病","平脉","析证","定治"]:
+                if k == "定治" and not allow_ai_treatment_completion:
+                    continue
                 if ai_progress.get(k): progress[k] = True
             if ai_progress.get("current_stage"):
                 progress["current_stage"] = ai_progress["current_stage"]
@@ -350,7 +499,7 @@ class TrainingAgent:
         case_info = self._format_case_info(medical_case, level)
         s1 = "已完成" if progress.get("辨病") else "未完成"
         s2 = "已完成" if progress.get("平脉") else "未完成"
-        s3 = "已完成" if progress.get("析证") else "未完成"
+        s3 = "已完成" if progress.get("定治") else "未完成"
         if level == "初级":
             prompt = SYSTEM_PROMPT_BEGINNER.format(
                 classic_context=classic_ctx, guard=SAFETY_GUARD, case_info=case_info,
@@ -371,18 +520,22 @@ class TrainingAgent:
 
     def _build_progress_hint(self, progress: dict) -> str:
         return build_progress_hint(progress)
-    def _format_case_info(self, medical_case: MedicalCase, level: str) -> str:
-        parts = [f"病案标题：{medical_case.title}"]
+    def _format_case_info(self, medical_case: MedicalCase, level: str,
+                          include_reference: bool = False) -> str:
+        """构造模型上下文；患者对话默认不携带标题、答案和处方等隐藏信息。"""
+        parts = []
+        if include_reference:
+            parts.append(f"病案标题：{medical_case.title}")
         if medical_case.symptoms:
             parts.append(f"【症状描述】{medical_case.symptoms[:500]}")
         parts.append(f"【主诉/病史】{medical_case.content[:600]}")
-        if medical_case.diagnosis:
+        if include_reference and medical_case.diagnosis:
             parts.append(f"（导师参考——诊断：{medical_case.diagnosis}）")
-        if medical_case.prescription:
+        if include_reference and medical_case.prescription:
             parts.append(f"（导师参考——方剂：{medical_case.prescription}）")
-        if medical_case.teaching_points:
+        if include_reference and medical_case.teaching_points:
             parts.append(f"【教学要点——据此引导学生】{medical_case.teaching_points[:500]}")
-        if medical_case.correct_answer:
+        if include_reference and medical_case.correct_answer:
             parts.append(f"【参考答案——评判正误】{medical_case.correct_answer[:600]}")
         return "\n".join(parts)
 
@@ -406,30 +559,53 @@ class TrainingAgent:
         for m in messages:
             role = "学生" if m.get("role") == "user" else "智能体"
             conversation += f"{role}：{m.get('content','')[:300]}\n\n"
-        case_info = self._format_case_info(medical_case, session.difficulty_level) if medical_case else "无"
+        case_info = self._format_case_info(
+            medical_case, session.difficulty_level, include_reference=True
+        ) if medical_case else "无"
         classic_ctx = self._detect_classic_context(medical_case) if medical_case else "未知"
         eval_prompt = EVALUATION_PROMPT.format(
             classic_context=classic_ctx, level=session.difficulty_level,
             case_info=case_info, conversation=conversation)
         eval_text, score = "", "未评分"
+        evaluation_data = None
+        safety_feedback = assess_treatment_safety(
+            messages, medical_case.prescription if medical_case else None
+        )
         if self.client:
             resp = self._call_llm("你是教学评价专家。只输出JSON。", [], eval_prompt, temperature=0.3)
             try:
                 m = re.search(r'\{[\s\S]*\}', resp)
                 if m:
-                    d = json.loads(m.group())
-                    score = str(d.get("综合评分", "未评分"))
-                    eval_text = json.dumps(d, ensure_ascii=False, indent=2)
+                    evaluation_data = json.loads(m.group())
+                    score = str(evaluation_data.get("综合评分", "未评分"))
+                    eval_text = json.dumps(evaluation_data, ensure_ascii=False, indent=2)
                 else:
                     eval_text = resp
             except json.JSONDecodeError:
                 eval_text = resp
         else:
-            eval_text = json.dumps({
+            evaluation_data = {
                 "综合评分":"N/A","辨病准确度":"N/A","平脉分析度":"N/A",
                 "析证清晰度":"N/A","定治合理性":"N/A","框架完整度":"N/A",
                 "思辨能力等级":"N/A","优点":"AI未配置","改进建议":"请配置API"
-            }, ensure_ascii=False, indent=2)
+            }
+            eval_text = json.dumps(evaluation_data, ensure_ascii=False, indent=2)
+
+        if safety_feedback["level"] == "critical":
+            score = "0"
+            if evaluation_data is not None:
+                evaluation_data["综合评分"] = 0
+                evaluation_data["用药安全复盘"] = safety_feedback["summary"]
+                evaluation_data["改进建议"] = (
+                    "本次训练触发严重用药安全风险。请先复盘处方安全边界，"
+                    "再重新完成病机、方证与治疗方案推演。"
+                )
+                eval_text = json.dumps(evaluation_data, ensure_ascii=False, indent=2)
+            else:
+                eval_text += f"\n\n【用药安全复盘】{safety_feedback['summary']}"
+        elif evaluation_data is not None:
+            evaluation_data["用药安全复盘"] = safety_feedback["summary"]
+            eval_text = json.dumps(evaluation_data, ensure_ascii=False, indent=2)
         session.status = "completed"; session.score = score; session.ended_at = datetime.now()
         db.commit()
         dp = self._summarize_decision_path(session, messages)
@@ -442,7 +618,8 @@ class TrainingAgent:
             "evaluation": eval_text,
             "score": score,
             "decision_path": dp,
-            "related_texts": related_texts
+            "related_texts": related_texts,
+            "safety_feedback": safety_feedback,
         }
 
     def _get_related_texts(self, db: Session, medical_case) -> List[dict]:
