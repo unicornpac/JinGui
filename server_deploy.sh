@@ -32,6 +32,7 @@ FILES=(
   "app/services/import_validator.py"
   "app/services/agent_service.py"
   "app/services/ai_service.py"
+  "app/services/treatment_safety.py"
   "app/services/matcher.py"
   "app/services/prompts_config.py"
   "app/services/safety.py"
