@@ -70,6 +70,51 @@ class TestSessionLifecycle:
         finally:
             client.app.dependency_overrides.pop(get_agent, None)
 
+    def test_evaluation_returns_treatment_safety_feedback(self, client, engine):
+        """训练结束评价应将确定性用药安全复盘返回给前端。"""
+        Session = sessionmaker(bind=engine)
+        db = Session()
+        try:
+            case = MedicalCase(
+                title="测试病案",
+                content="测试内容",
+                prescription="测试方",
+                difficulty_level="初级",
+            )
+            db.add(case)
+            db.commit()
+            session = TrainingSession(
+                student_id="test_user",
+                difficulty_level="初级",
+                case_id=case.id,
+                status="active",
+            )
+            db.add(session)
+            db.commit()
+
+            mock_agent = MagicMock()
+            mock_agent.evaluate_session.return_value = {
+                "score": "0",
+                "evaluation": '{"综合评分": 0}',
+                "decision_path": "测试路径",
+                "related_texts": [],
+                "safety_feedback": {
+                    "level": "critical",
+                    "title": "严重用药安全风险",
+                    "summary": "训练安全红线触发",
+                    "details": [],
+                },
+            }
+            client.app.dependency_overrides[get_agent] = lambda: mock_agent
+
+            response = client.post(f"/api/agent/session/{session.id}/evaluate")
+
+            assert response.status_code == 200
+            assert response.json()["safety_feedback"]["level"] == "critical"
+        finally:
+            client.app.dependency_overrides.pop(get_agent, None)
+            db.close()
+
 
 # ==================== 页面访问 ====================
 
