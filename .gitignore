@@ -25,3 +25,6 @@ backups/
 # Runtime uploads live under DATA_DIR and must not be versioned.
 backend/uploads/*
 !backend/uploads/.gitkeep
+
+# 软著申请材料（本地草稿，不入库）
+软件著作权说明书_草稿.md
