@@ -30,7 +30,7 @@ UI_VERSION = "20260804-2"
 
 # 创建FastAPI应用
 app = FastAPI(
-    title="中医经典条文学习系统",
+    title="金匮要略临床思辨训练系统",
     description="帮助中医学学生增强经典条文与实际病案之间的联系",
     version="1.0.0",
     docs_url="/docs",
@@ -151,7 +151,7 @@ async def root(_: str = Depends(verify_admin_page)):
     index_path = STATIC_DIR / "index.html"
     if index_path.exists():
         return FileResponse(index_path, headers={"Cache-Control": "no-store, max-age=0"})
-    return {"message": "中医经典条文学习系统", "api文档": "/docs"}
+    return {"message": "金匮要略临床思辨训练系统", "api文档": "/docs"}
 
 
 @app.get("/user")
