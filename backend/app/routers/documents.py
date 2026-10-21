@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Backgro
 from sqlalchemy.orm import Session
 from typing import List
 from ..database import get_db
-from ..dependencies import verify_admin, limit_upload
+from ..dependencies import verify_admin, limit_upload, get_admin_password
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from ..models import Document, ClassicText, MedicalCase, ImportBatch, ImportStaging
@@ -159,6 +159,9 @@ def process_document(doc_id: int, file_path: str):
 MAX_UPLOAD_NORMAL = 20 * 1024 * 1024    # 20MB，无需额外验证
 MAX_UPLOAD_HARD   = 200 * 1024 * 1024   # 200MB，绝对上限
 
+# 允许的扩展名白名单（用于落盘文件名，防止路径穿越与可执行文件上传）
+ALLOWED_EXTENSIONS = {".pdf", ".docx", ".doc", ".xlsx", ".xls", ".txt"}
+
 
 @router.post("/upload", response_model=MessageResponse, summary="上传文档")
 async def upload_document(
@@ -201,8 +204,8 @@ async def upload_document(
     # 分级验证：> 20MB 需要额外密码
     if file_size_hint and file_size_hint > MAX_UPLOAD_NORMAL:
         upload_password = request.headers.get("X-Upload-Password", "")
-        correct = os.environ.get("ADMIN_PASSWORD", "jingui2026")
-        if not _secrets.compare_digest(upload_password.encode(), correct.encode()):
+        correct = get_admin_password()
+        if not correct or not _secrets.compare_digest(upload_password.encode(), correct.encode()):
             raise HTTPException(
                 status_code=401,
                 detail=f"文件超过 20MB（{file_size_hint / 1024 / 1024:.1f}MB），"
@@ -228,10 +231,19 @@ async def upload_document(
             detail="不支持的文件类型，仅支持PDF、Word、Excel、TXT格式"
         )
 
-    # 3. 生成唯一文件名
+    # 3. 生成唯一文件名：只取 basename + 扩展名白名单，原始名不参与路径拼接
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    safe_filename = f"{timestamp}_{file.filename}"
+    original_name = Path(file.filename or "").name
+    suffix = Path(original_name).suffix.lower()
+    if suffix not in ALLOWED_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"不支持的文件扩展名 {suffix or '(无)'}，"
+                   f"仅支持 {', '.join(sorted(ALLOWED_EXTENSIONS))}",
+        )
+    safe_filename = f"{timestamp}_{uuid.uuid4().hex[:8]}{suffix}"
     file_path = os.path.join(UPLOAD_DIR, safe_filename)
+    display_name = original_name or safe_filename
 
     # 4. 流式保存（同时检查实际大小，防止 Content-Length 伪造绕过）
     try:
@@ -249,8 +261,8 @@ async def upload_document(
                 # 如果未提供 Content-Length 且超过 20MB，中途拦截
                 if not content_length and bytes_written > MAX_UPLOAD_NORMAL:
                     upload_password = request.headers.get("X-Upload-Password", "")
-                    correct = os.environ.get("ADMIN_PASSWORD", "jingui2026")
-                    if not _secrets.compare_digest(upload_password.encode(), correct.encode()):
+                    correct = get_admin_password()
+                    if not correct or not _secrets.compare_digest(upload_password.encode(), correct.encode()):
                         buffer.close()
                         os.unlink(file_path)
                         raise HTTPException(
@@ -268,7 +280,7 @@ async def upload_document(
 
     # 5. 保存文件信息到数据库
     doc = Document(
-        filename=file.filename,
+        filename=display_name,
         file_type=file.content_type or "unknown",
         file_path=file_path,
         file_size=file_size,
@@ -282,7 +294,7 @@ async def upload_document(
     background_tasks.add_task(process_document, doc.id, file_path)
 
     return MessageResponse(
-        message=f"文件 {file.filename}（{file_size / 1024 / 1024:.1f}MB）上传成功，正在后台解析并暂存至审核区...",
+        message=f"文件 {display_name}（{file_size / 1024 / 1024:.1f}MB）上传成功，正在后台解析并暂存至审核区...",
         success=True
     )
 

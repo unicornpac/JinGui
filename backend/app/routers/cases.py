@@ -8,7 +8,10 @@ from typing import List, Optional
 from ..database import get_db
 from ..dependencies import verify_admin
 from ..models import MedicalCase
-from ..schemas import MedicalCaseCreate, MedicalCaseUpdate, MedicalCaseResponse, BatchDeleteIds, MessageResponse
+from ..schemas import (
+    MedicalCaseCreate, MedicalCaseUpdate, MedicalCaseResponse,
+    MedicalCasePublicResponse, BatchDeleteIds, MessageResponse,
+)
 
 router = APIRouter()
 
@@ -27,7 +30,7 @@ async def create_case(
     return db_case
 
 
-@router.get("/", response_model=List[MedicalCaseResponse], summary="病案列表")
+@router.get("/", response_model=List[MedicalCasePublicResponse], summary="病案列表（公开视图）")
 async def get_cases(
     skip: int = Query(0, ge=0, description="跳过条数"),
     limit: int = Query(100, ge=1, le=1000, description="每页条数"),
@@ -35,7 +38,11 @@ async def get_cases(
     diagnosis: Optional[str] = Query(None, description="诊断搜索"),
     db: Session = Depends(get_db)
 ):
-    """获取病案列表，支持按标题、诊断搜索"""
+    """获取病案列表（学生端视图）。
+
+    只返回标题、内容、症状与难度；诊断、方剂、教学要点、参考答案一律不下发，
+    避免未认证调用者直接取得训练标准答案。
+    """
     query = db.query(MedicalCase)
     
     if title:
@@ -46,6 +53,40 @@ async def get_cases(
     
     cases = query.offset(skip).limit(limit).all()
     return cases
+
+
+@router.get("/admin/", response_model=List[MedicalCaseResponse], summary="病案列表（管理端）")
+async def get_cases_admin(
+    skip: int = Query(0, ge=0, description="跳过条数"),
+    limit: int = Query(100, ge=1, le=1000, description="每页条数"),
+    title: Optional[str] = Query(None, description="标题搜索"),
+    diagnosis: Optional[str] = Query(None, description="诊断搜索"),
+    db: Session = Depends(get_db),
+    _admin: str = Depends(verify_admin),
+):
+    """管理端病案列表：含诊断、方剂、教学要点与参考答案，需管理员认证。"""
+    query = db.query(MedicalCase)
+
+    if title:
+        query = query.filter(MedicalCase.title.contains(title))
+
+    if diagnosis:
+        query = query.filter(MedicalCase.diagnosis.contains(diagnosis))
+
+    return query.offset(skip).limit(limit).all()
+
+
+@router.get("/admin/{case_id}", response_model=MedicalCaseResponse, summary="病案详情（管理端）")
+async def get_case_admin(
+    case_id: int,
+    db: Session = Depends(get_db),
+    _admin: str = Depends(verify_admin),
+):
+    """管理端病案详情：含完整答案字段，需管理员认证。"""
+    case = db.query(MedicalCase).filter(MedicalCase.id == case_id).first()
+    if not case:
+        raise HTTPException(status_code=404, detail="病案不存在")
+    return case
 
 
 @router.post("/batch-delete", response_model=MessageResponse, summary="批量删除病案")
@@ -63,12 +104,12 @@ async def batch_delete_cases(
     return MessageResponse(message=f"已删除 {deleted} 个病案", success=True)
 
 
-@router.get("/{case_id}", response_model=MedicalCaseResponse, summary="获取病案")
+@router.get("/{case_id}", response_model=MedicalCasePublicResponse, summary="病案详情（公开视图）")
 async def get_case(
     case_id: int,
     db: Session = Depends(get_db)
 ):
-    """获取单个病案"""
+    """获取单个病案（学生端视图），不含诊断/方剂/教学要点/参考答案。"""
     case = db.query(MedicalCase).filter(MedicalCase.id == case_id).first()
     if not case:
         raise HTTPException(status_code=404, detail="病案不存在")

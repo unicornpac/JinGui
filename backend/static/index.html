@@ -353,16 +353,22 @@ async function loadTrain() {
     const tbody = document.getElementById('trainTbody');
     if (!data.length) { tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:30px;">暂无训练记录</td></tr>'; }
     else {
-      tbody.innerHTML = data.map(r => `
+      tbody.innerHTML = data.map(r => {
+        const diff = ['初级','中级','高级'].includes(r.difficulty_level) ? r.difficulty_level : '初级';
+        const diffCls = diff==='初级'?'beginner':diff==='中级'?'intermediate':'advanced';
+        const st = ['active','completed','abandoned'].includes(r.status) ? r.status : 'active';
+        const sid = Number(r.id);
+        return `
         <tr>
-          <td>${r.id}</td><td>${r.student_id||'--'}</td>
-          <td><span class="badge bg-${r.difficulty_level==='初级'?'beginner':r.difficulty_level==='中级'?'intermediate':'advanced'}">${r.difficulty_level}</span></td>
-          <td>${(r.case_title||'--').substring(0,20)}</td>
-          <td><span class="badge bg-${r.status}">${r.status==='active'?'训练中':'已完成'}</span></td>
-          <td>${r.message_count||0}</td><td>${r.score||'--'}</td>
-          <td>${(r.started_at||'').substring(0,10)}</td>
-          <td><button class="btn btn-view btn-sm" onclick="viewSession(${r.id})">查看</button> <button class="btn btn-del btn-sm" onclick="delSession(${r.id})">删除</button></td>
-        </tr>`).join('');
+          <td>${sid}</td><td>${escHtml(String(r.student_id||'--'))}</td>
+          <td><span class="badge bg-${diffCls}">${diff}</span></td>
+          <td>${escHtml(String(r.case_title||'--').substring(0,20))}</td>
+          <td><span class="badge bg-${st}">${st==='active'?'训练中':'已完成'}</span></td>
+          <td>${Number(r.message_count)||0}</td><td>${escHtml(String(r.score||'--'))}</td>
+          <td>${escHtml(String(r.started_at||'').substring(0,10))}</td>
+          <td><button class="btn btn-view btn-sm" onclick="viewSession(${sid})">查看</button> <button class="btn btn-del btn-sm" onclick="delSession(${sid})">删除</button></td>
+        </tr>`;
+      }).join('');
     }
     document.getElementById('sTotal').textContent = data.length;
     document.getElementById('sActive').textContent = data.filter(r=>r.status==='active').length;
@@ -374,11 +380,14 @@ async function loadTrain() {
 
 async function viewSession(id) {
   const data = await (await fetch(`${API}/agent/session/${id}`)).json();
-  document.getElementById('dInfo').innerHTML = `学生：${data.student_id} | 难度：${data.difficulty_level} | 病案：${data.case_title||'--'} | 评分：${data.score||'--'}`;
-  document.getElementById('dChat').innerHTML = (data.messages||[]).map(m => `
-    <div class="rpl rpl-${m.role==='student'?'student':m.role==='agent'?'agent':'system'}">
-      ${m.role==='agent'&&m.message_type?`<span class="badge bg-${m.message_type==='praise'?'active':m.message_type==='evaluation'?'completed':'intermediate'}" style="font-size:10px">${m.message_type}</span><br>`:''}${m.content}
-    </div>`).join('');
+  document.getElementById('dInfo').textContent = `学生：${data.student_id||'--'} | 难度：${data.difficulty_level||'--'} | 病案：${data.case_title||'--'} | 评分：${data.score||'--'}`;
+  document.getElementById('dChat').innerHTML = (data.messages||[]).map(m => {
+    const roleCls = m.role==='student' ? 'student' : (m.role==='agent' ? 'agent' : 'system');
+    const typeTag = (m.role==='agent' && m.message_type)
+      ? `<span class="badge bg-${m.message_type==='praise'?'active':m.message_type==='evaluation'?'completed':'intermediate'}" style="font-size:10px">${escHtml(String(m.message_type))}</span><br>`
+      : '';
+    return `<div class="rpl rpl-${roleCls}">${typeTag}${escHtml(String(m.content||''))}</div>`;
+  }).join('');
   document.getElementById('detailModal').classList.add('show');
 }
 
@@ -406,7 +415,7 @@ async function createCase() {
 async function loadCases() {
   const diff = document.getElementById('cfDiff').value;
   try {
-    const data = await (await fetch(`${API}/cases/?limit=100`)).json();
+    const data = await (await fetch(`${API}/cases/admin/?limit=100`)).json();
     const filtered = diff ? data.filter(c => c.difficulty_level === diff) : data;
     const tbody = document.getElementById('caseTbody');
     if (!filtered.length) { tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:30px;">暂无病案</td></tr>'; return; }
@@ -419,7 +428,7 @@ async function loadCases() {
 }
 
 async function editCase(id) {
-  const c = await (await fetch(`${API}/cases/${id}`)).json();
+  const c = await (await fetch(`${API}/cases/admin/${id}`)).json();
   editingCaseId = id;
   document.getElementById('ceTitle').value = c.title||'';
   document.getElementById('ceContent').value = c.content||'';
@@ -850,11 +859,13 @@ async function loadFeedbacks() {
     }
     tbody.innerHTML = data.map(fb => {
       const stCls = fb.status === 'pending' ? 'bg-intermediate' : fb.status === 'resolved' ? 'bg-active' : 'bg-advanced';
-      const stLabel = { pending: '待处理', resolved: '已处理', closed: '已关闭' }[fb.status] || fb.status;
-      const sessionInfo = fb.session_id ? `#${fb.session_id} ${fb.session_difficulty||''}` : '--';
+      const stLabel = { pending: '待处理', resolved: '已处理', closed: '已关闭' }[fb.status] || escapeHtml(String(fb.status||'--'));
+      const sessionInfo = fb.session_id ? `#${Number(fb.session_id)} ${escapeHtml(String(fb.session_difficulty||''))}` : '--';
+      const catCls = fb.category==='功能建议'?'active':fb.category==='bug反馈'?'advanced':'intermediate';
+      const catLabel = escapeHtml(String(fb.category||'--'));
       return `<tr>
-        <td>${fb.id}</td>
-        <td><span class="badge bg-${fb.category==='功能建议'?'active':fb.category==='bug反馈'?'advanced':'intermediate'}">${fb.category}</span></td>
+        <td>${Number(fb.id)}</td>
+        <td><span class="badge bg-${catCls}">${catLabel}</span></td>
         <td style="max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(fb.content)}">${escapeHtml(fb.content).substring(0,60)}</td>
         <td>${escapeHtml(fb.contact||'--')}</td>
         <td style="font-size:12px;">${sessionInfo}</td>

@@ -14,11 +14,22 @@ api_security = HTTPBasic(auto_error=False)
 page_security = HTTPBasic()
 
 
+def get_admin_password() -> str:
+    """管理员密码只从环境变量读取；未配置时返回空串（任何密码都不通过）。
+
+    刻意不再提供内置默认值：默认口令一旦生效，所有部署就共享同一个入口。
+    需要登录管理端时必须显式设置 ADMIN_PASSWORD（见 README 环境变量表）。
+    """
+    return (os.environ.get("ADMIN_PASSWORD") or "").strip()
+
+
 def _password_is_valid(credentials: Optional[HTTPBasicCredentials]) -> bool:
     """以恒定时间比较管理员密码。"""
     if credentials is None:
         return False
-    correct = os.environ.get("ADMIN_PASSWORD", "jingui2026")
+    correct = get_admin_password()
+    if not correct:
+        return False
     return secrets.compare_digest(credentials.password.encode(), correct.encode())
 
 

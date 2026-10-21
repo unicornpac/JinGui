@@ -14,32 +14,20 @@ from ..services.matcher import get_matcher
 router = APIRouter()
 
 
-def _env_path():
-    from pathlib import Path
-    # __file__ = backend/app/routers/analysis.py -> parent.parent.parent = backend
-    return Path(__file__).resolve().parent.parent.parent / ".env"
+# 说明：AI 相关配置在应用启动时由 backend/.env 统一加载一次（override=False，环境变量优先）。
+# 各端点一律直接读取 os.environ，不再在请求期解析 .env —— 否则会把密钥写回进程环境，
+# 既破坏"环境变量优先"的约定，也让测试无法通过置空环境变量来隔离外部调用。
 
 
 @router.get("/models", summary="当前密钥可用模型列表")
-async def get_available_models():
-    """调用提供商 /v1/models 接口，返回当前密钥可用的模型列表"""
+async def get_available_models(_admin: str = Depends(verify_admin)):
+    """调用提供商 /v1/models 接口，返回当前密钥可用的模型列表（需管理员认证）。
+
+    配置统一在应用启动时由 `.env` 加载一次（`override=False`，环境变量优先），
+    这里不再运行期读取 `.env`，避免把密钥重新写回 `os.environ` 造成全局污染。
+    """
     import os
-    from dotenv import load_dotenv
-    _ep = _env_path()
-    if _ep.exists():
-        load_dotenv(_ep, override=True)
-    if not os.getenv("OPENAI_API_KEY") and not os.getenv("OPENAI_BASE_URL"):
-        try:
-            with open(_ep, "r", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if line and not line.startswith("#") and "=" in line:
-                        k, _, v = line.partition("=")
-                        k, v = k.strip(), v.strip().strip('"').strip("'")
-                        if k and v:
-                            os.environ[k] = v
-        except Exception:
-            pass
+
     base_url = (os.getenv("OPENAI_BASE_URL") or "").strip().rstrip("/")
     api_key = (os.getenv("OPENAI_API_KEY") or os.getenv("DASHSCOPE_API_KEY") or "").strip()
     if not base_url or not api_key:
@@ -55,26 +43,10 @@ async def get_available_models():
 
 
 @router.get("/status", summary="AI 配置状态")
-async def get_ai_status():
-    """检查 AI API 是否已配置（含调试信息）"""
+async def get_ai_status(_admin: str = Depends(verify_admin)):
+    """检查 AI API 是否已配置（需管理员认证；含 provider 名称，故不对公网开放）。"""
     import os
-    from dotenv import load_dotenv
-    _ep = _env_path()
-    if _ep.exists():
-        load_dotenv(_ep, override=True)
-    # 若仍无配置，直接读取 .env
-    if not os.getenv("OPENAI_API_KEY") and not os.getenv("OPENAI_BASE_URL"):
-        try:
-            with open(_ep, "r", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if line and not line.startswith("#") and "=" in line:
-                        k, _, v = line.partition("=")
-                        k, v = k.strip(), v.strip().strip('"').strip("'")
-                        if k and v:
-                            os.environ[k] = v
-        except Exception:
-            pass
+
     base_url = os.getenv("OPENAI_BASE_URL", "")
     has_key = bool(os.getenv("OPENAI_API_KEY") or os.getenv("DASHSCOPE_API_KEY"))
     debug = {
@@ -128,25 +100,7 @@ async def analyze_text(
             )
         ).limit(5).all()
     
-    # 3. 使用AI进行深度分析（无论有无病案都调用AI）
-    import os
-    _ep = _env_path()
-    if _ep.exists():
-        from dotenv import load_dotenv
-        load_dotenv(_ep, override=True)
-    # 若仍无配置，尝试直接读取 .env
-    if not os.getenv("OPENAI_API_KEY") and not os.getenv("OPENAI_BASE_URL"):
-        try:
-            with open(_ep, "r", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if line and not line.startswith("#") and "=" in line:
-                        k, _, v = line.partition("=")
-                        k, v = k.strip(), v.strip().strip('"').strip("'")
-                        if k and v:
-                            os.environ[k] = v
-        except Exception:
-            pass
+    # 3. 使用 AI 进行深度分析（配置已在应用启动时统一加载，此处不再读 .env）
     ai_service = get_ai_service()
     model_override = getattr(query, "model", None) if hasattr(query, "model") else None
 

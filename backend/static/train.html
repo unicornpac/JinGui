@@ -301,6 +301,7 @@ body {
 // ===== 全局状态 =====
 const API = '/api/agent';
 let sessionId = null;
+let sessionToken = null;
 let selectedDiff = '';
 let sessionActive = false;
 let progress = {};
@@ -327,6 +328,7 @@ async function startSession() {
     
     const data = await resp.json();
     sessionId = data.session_id;
+    sessionToken = data.session_token;
     sessionActive = true;
     
     // 更新UI
@@ -368,7 +370,8 @@ async function sendMessage() {
   
   try {
     const resp = await fetch(`${API}/session/${sessionId}/message`, {
-      method:'POST', headers:{'Content-Type':'application/json'},
+      method:'POST',
+      headers:{'Content-Type':'application/json', 'X-Session-Token': sessionToken || ''},
       body: JSON.stringify({ content })
     });
     if (!resp.ok) throw new Error((await resp.json()).detail || '发送失败');
@@ -404,7 +407,10 @@ async function evaluateSession() {
   addMessage('system', '⏳ 正在生成评价报告…');
   
   try {
-    const resp = await fetch(`${API}/session/${sessionId}/evaluate`, { method:'POST' });
+    const resp = await fetch(`${API}/session/${sessionId}/evaluate`, {
+      method:'POST',
+      headers:{'X-Session-Token': sessionToken || ''}
+    });
     if (!resp.ok) throw new Error((await resp.json()).detail || '评价失败');
     
     const data = await resp.json();
@@ -560,6 +566,7 @@ function updateProgress(p) {
 
 function resetAll() {
   sessionId = null;
+  sessionToken = null;
   sessionActive = false;
   progress = {};
   document.getElementById('welcomeScreen').style.display = 'flex';

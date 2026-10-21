@@ -28,29 +28,45 @@ from .routers import texts, cases, analysis, documents, agent, import_review, fe
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 UI_VERSION = "20260804-2"
 
+# 生产环境可设 DISABLE_DOCS=1 关闭交互式文档（/docs、/redoc、/openapi.json）
+_DOCS_ENABLED = os.getenv("DISABLE_DOCS", "").strip().lower() not in {"1", "true", "yes"}
+
+# CORS 默认不放行任何跨域来源：本系统前后端同源部署，无需跨域。
+# 确有前后端分离部署时，用 CORS_ORIGINS 以逗号分隔显式列出允许的来源。
+_CORS_ORIGINS = [
+    origin.strip()
+    for origin in (os.getenv("CORS_ORIGINS") or "").split(",")
+    if origin.strip()
+]
+
 # 创建FastAPI应用
 app = FastAPI(
     title="金匮要略临床思辨训练系统",
     description="帮助中医学学生增强经典条文与实际病案之间的联系",
     version="1.0.0",
-    docs_url="/docs",
-    redoc_url="/redoc",
+    docs_url="/docs" if _DOCS_ENABLED else None,
+    redoc_url="/redoc" if _DOCS_ENABLED else None,
+    openapi_url="/openapi.json" if _DOCS_ENABLED else None,
     openapi_tags=[
         {"name": "条文管理", "description": "经典条文的增删改查"},
         {"name": "病案管理", "description": "病案的增删改查"},
         {"name": "AI分析", "description": "条文与病案关联分析"},
         {"name": "文档管理", "description": "上传文档并自动解析"},
         {"name": "智能体训练", "description": "三阶梯临床思辨多轮交互训练"},
+        {"name": "运维", "description": "存活与就绪探针"},
     ],
 )
 
-# CORS 配置在上方
+# 仅当显式配置了来源时才启用凭据跨域，避免"任意来源 + 携带凭据"的组合
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=_CORS_ORIGINS,
+    allow_credentials=bool(_CORS_ORIGINS),
+    allow_methods=["GET", "POST", "PUT", "DELETE"],
+    allow_headers=[
+        "Authorization", "Content-Type", "X-Request-ID",
+        "X-Session-Token", "X-Upload-Password",
+    ],
 )
 
 
@@ -96,10 +112,16 @@ app.include_router(documents.router, prefix="/api/documents", tags=["文档管�
 app.include_router(agent.router, prefix="/api/agent", tags=["智能体训练"])
 app.include_router(import_review.router)
 app.include_router(feedback.router, prefix="/api/feedback", tags=["用户反馈"])
-@app.get("/health")
-async def health_check():
-    """健康检查：数据库连接 + AI API 连通性"""
-    import asyncio
+@app.get("/live", tags=["运维"], summary="存活探针")
+async def live_check():
+    """进程存活探针：只要进程能响应就返回 200，供负载均衡与进程守护使用。"""
+    return {"status": "ok"}
+
+
+@app.get("/ready", tags=["运维"], summary="就绪探针")
+async def ready_check():
+    """就绪探针：数据库可用返回 200，否则 503。AI 未配置只降级不阻塞。"""
+    from fastapi.responses import JSONResponse
     import httpx
 
     status = "ok"
@@ -111,13 +133,15 @@ async def health_check():
         from .database import SessionLocal
         from sqlalchemy import text
         db = SessionLocal()
-        db.execute(text("SELECT 1"))
-        db.close()
+        try:
+            db.execute(text("SELECT 1"))
+        finally:
+            db.close()
     except Exception as e:
         db_status = f"error: {e}"
         status = "degraded"
 
-    # 2. 检查 AI API 连通性（非阻塞）
+    # 2. 检查 AI API 连通性（非阻塞，失败不影响就绪判定）
     try:
         base_url = (os.getenv("OPENAI_BASE_URL", "") or "").strip().rstrip("/")
         if base_url:
@@ -130,11 +154,16 @@ async def health_check():
         ai_status = f"unreachable: {str(e)[:80]}"
 
     http_status = 200 if status == "ok" else 503
-    return {
-        "status": status,
-        "db": db_status,
-        "ai": ai_status,
-    }, http_status
+    return JSONResponse(
+        status_code=http_status,
+        content={"status": status, "db": db_status, "ai": ai_status},
+    )
+
+
+@app.get("/health", tags=["运维"], summary="健康检查（兼容 /ready）")
+async def health_check():
+    """向后兼容端点：行为等同 /ready，保留给既有部署脚本与监控。"""
+    return await ready_check()
 
 
 @app.on_event("startup")

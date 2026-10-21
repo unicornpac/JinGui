@@ -21,8 +21,19 @@ from ..schemas import (
     MessageResponse, PublicStatsResponse
 )
 from ..services.agent_service import get_agent, TrainingAgent
+from ..services.session_token import issue_session_token, verify_session_token
 
 router = APIRouter()
+
+
+def _assert_session_owner(session_id: int, request: Request) -> None:
+    """校验请求方持有该会话的归属令牌。
+
+    令牌由 session_id 与 SESSION_SECRET/ADMIN_PASSWORD 经 HMAC 派生，不落库，
+    因此没有密钥的一方无法枚举或接管他人会话。
+    """
+    if not verify_session_token(session_id, request.headers.get("X-Session-Token")):
+        raise HTTPException(status_code=403, detail="会话令牌无效或缺失")
 
 
 @router.get("/public-stats", response_model=PublicStatsResponse, summary="公开聚合统计")
@@ -70,7 +81,8 @@ async def start_session(
             session_id=session.id,
             difficulty_level=session.difficulty_level,
             case_title=session.case.title if session.case else "未知病案",
-            agent_message=opening
+            agent_message=opening,
+            session_token=issue_session_token(session.id),
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -82,11 +94,13 @@ async def start_session(
 async def send_message(
     session_id: int,
     req: SessionMessageRequest,
+    request: Request,
     db: Session = Depends(get_db),
     _rl: None = Depends(limit_agent_message),
     agent: TrainingAgent = Depends(get_agent),
 ):
     """向智能体发送消息，获取回复"""
+    _assert_session_owner(session_id, request)
     try:
         agent_response, msg_type, session_status, progress = agent.process_message(
             db=db,
@@ -105,12 +119,13 @@ async def send_message(
         raise HTTPException(status_code=500, detail=f"消息处理失败: {str(e)}")
 
 
-@router.get("/session/{session_id}", response_model=SessionDetailResponse, summary="会话详情")
+@router.get("/session/{session_id}", response_model=SessionDetailResponse, summary="会话详情（教师端）")
 async def get_session_detail(
     session_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _admin: str = Depends(verify_admin),
 ):
-    """获取训练会话的完整详情（含所有消息记录）"""
+    """获取训练会话的完整详情（含所有消息记录），需管理员认证。"""
     session = db.query(TrainingSession).filter(TrainingSession.id == session_id).first()
     if not session:
         raise HTTPException(status_code=404, detail="会话不存在")
@@ -146,11 +161,17 @@ async def get_session_detail(
 @router.post("/session/{session_id}/evaluate", response_model=SessionEvaluateResponse, summary="结束并评价")
 async def evaluate_session(
     session_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     _rl: None = Depends(limit_agent_start),
     agent: TrainingAgent = Depends(get_agent),
 ):
-    """结束训练会话并生成 AI 评价报告（含病案揭晓）"""
+    """结束训练会话并生成 AI 评价报告（含病案揭晓）。
+
+    响应包含 `case_correct_answer`，因此必须先通过会话归属令牌校验，
+    否则枚举自增 id 即可批量获取全部病案答案。
+    """
+    _assert_session_owner(session_id, request)
     session = db.query(TrainingSession).filter(TrainingSession.id == session_id).first()
     if not session:
         raise HTTPException(status_code=404, detail="会话不存在")

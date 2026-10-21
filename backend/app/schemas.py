@@ -2,7 +2,7 @@
 Pydantic数据模型（用于API请求和响应验证）
 """
 from pydantic import BaseModel, Field
-from typing import Optional, List
+from typing import Optional, List, Literal
 from datetime import datetime
 
 
@@ -57,9 +57,11 @@ class TextVerifyResponse(BaseModel):
     chapter_correct: bool = Field(False, description="章节归属是否正确")
     content_match: bool = Field(False, description="内容是否与权威来源一致")
     expected_chapter: Optional[str] = Field(None, description="互联网参考的篇章名")
+    expected_section: Optional[str] = Field(None, description="互联网参考的子篇（上/中/下）")
     source_url: Optional[str] = Field(None, description="互联网参考来源")
     detail: Optional[str] = Field(None, description="详细比对说明")
     verified: bool = False
+    fixed: bool = Field(False, description="是否执行了自动修复")
 
 
 class TextVerifyBatchResponse(BaseModel):
@@ -101,6 +103,22 @@ class MedicalCaseResponse(MedicalCaseBase):
     id: int
     created_at: datetime
     updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class MedicalCasePublicResponse(BaseModel):
+    """公开病案视图 —— 不含诊断、方剂、教学要点与参考答案，仅供学生端使用。
+
+    训练系统的核心约束是学生看不到标准答案，因此公开接口一律使用本模型；
+    需要完整字段的调用方必须走 /api/cases/admin/（管理员认证）。
+    """
+    id: int
+    title: str
+    content: str
+    symptoms: Optional[str] = None
+    difficulty_level: Optional[str] = Field("初级", description="难度等级：初级/中级/高级")
 
     class Config:
         from_attributes = True
@@ -159,6 +177,10 @@ class SessionStartResponse(BaseModel):
     difficulty_level: str
     case_title: str
     agent_message: str = Field(..., description="智能体的开场引导消息")
+    session_token: str = Field(
+        ...,
+        description="会话归属令牌。后续 /message 与 /evaluate 必须通过 X-Session-Token 请求头回传",
+    )
 
 
 class SessionMessageRequest(BaseModel):
@@ -214,7 +236,10 @@ class PublicStatsResponse(BaseModel):
 # ========== 用户反馈 ==========
 class FeedbackCreate(BaseModel):
     """提交反馈请求"""
-    category: str = Field(..., description="反馈类别：功能建议/bug反馈/使用体验/其他")
+    # 公开接口，类别用枚举收口，避免任意字符串入库后被管理端渲染
+    category: Literal["功能建议", "bug反馈", "使用体验", "其他"] = Field(
+        ..., description="反馈类别：功能建议/bug反馈/使用体验/其他"
+    )
     content: str = Field(..., min_length=5, max_length=2000, description="反馈内容（5-2000字）")
     contact: Optional[str] = Field(None, description="联系方式（可选）")
     session_id: Optional[int] = Field(None, description="关联的训练会话ID（可选）")

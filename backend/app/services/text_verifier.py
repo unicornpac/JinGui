@@ -10,6 +10,9 @@ from sqlalchemy.orm import Session
 _backend_dir = Path(__file__).resolve().parent.parent.parent
 
 from ..models import ClassicText, ChapterMeta
+from ..logger import get_logger
+
+logger = get_logger(__name__)
 
 
 # ========== 已知的《伤寒论》和《金匮要略》篇章结构 ==========
