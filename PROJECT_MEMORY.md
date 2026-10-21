@@ -4,7 +4,7 @@
 
 构建基于大模型的《金匮要略》临床思辨训练智能体，帮助学生通过"病脉证并治"框架进行三阶梯多轮交互训练。
 - 周期：2026年4月 — 2027年3月
-- **当前完成度**：后端+前端可运行，9 例结构化训练病例，生产库 762 条经典条文，183 个自动化测试（0 skip，全套 3.8 秒）；软著 V1.0.0 审核中、申请版本已冻结备份；P0 安全风险已处置（P0-10 的 HTTPS 待服务器配置）；原公网实例已到期，当前仅本地运行
+- **当前完成度**：后端+前端可运行，9 例结构化训练病例，生产库 762 条经典条文，183 个自动化测试（0 skip，全套 3.8 秒）；P0 安全风险已处置（P0-10 的 HTTPS 待服务器配置）；原公网实例已到期，当前仅本地运行
 
 ---
 
@@ -410,7 +410,7 @@ ADMIN_PASSWORD=请在服务器环境中配置
 ### 2026-10-21 审计新增项
 
 > 来源：2026-10-21 全项目审计（见工作日志）。状态标记：🔴 未修复 / 🟡 待处理 / 🟠 部分完成 / ✅ 已完成。
-> 纪律：软著 V1.0.0 已冻结于 tag `softcopyright-v1.0.0`，以下修复须遵守"不改名称/版本号/著作权人、不删 git 历史"。
+> 纪律：1.0.0 基线已冻结于 tag `v1.0.0`，以下修复须遵守"不改软件名称与版本号、不删除 git 历史"。
 
 #### P0-5. 病案读接口未认证即返回标准答案
 
@@ -544,7 +544,6 @@ ADMIN_PASSWORD=请在服务器环境中配置
 | 2026-08-03 | P2-6 | 条文导入系统全面重构：parser.py全新切分算法、raw_content双字段、质量闸门、暂存审核流程、管理端导入面板 | `parser.py`（重写）、`models.py`、`database.py`、`documents.py`（重写）、`import_validator.py`（新增）、`import_review.py`（新增）、`main.py`、`index.html`、`server_deploy.sh` |
 | 2026-08-04 | — | 新增用户反馈功能：feedbacks表 + 4个API端点 + 训练页反馈按钮/弹窗 + 管理端反馈面板 | `models.py`、`schemas.py`、`routers/feedback.py`（新增）、`main.py`、`train.html`、`index.html`、`server_deploy.sh` |
 | 2026-08-05 | — | 修复文档解析三大Bug：阈值过高导致金匮单章被丢弃、legacy正则括号方向错误、PDF/Excel缺paragraphs字段 | `parser.py` |
-| 2026-10-21 | — | 软著 V1.0.0 版本冻结备份：创建 tag `softcopyright-v1.0.0`，材料分类备份 + 完整镜像 + 源码快照 + 跨卷副本，两份提交 docx 设只读 | `PROJECT_MEMORY.md`、`backups/`（未入 git） |
 | 2026-10-21 | — | 全项目审计并更正文档：新增 P0-5～P0-10、P1-7～P1-9、P2-7～P2-9 共 12 项；按代码实际状态更正 P1-1/P1-3/P1-5/P2-1（已完成）与 P1-2/P1-4/P2-2/P3-2（部分完成）；测试数 127→176 | `PROJECT_MEMORY.md` |
 | 2026-10-21 | P0-5～P0-10、P1-7 | 第一批安全修复落地：病案读接口答案裁剪、会话归属令牌、`/live`+`/ready` 探针、上传文件名净化、管理端 XSS 转义、取消内置默认口令、校验器 logger；新增 19 个安全回归测试（195 passed） | `main.py`、`dependencies.py`、`schemas.py`、`routers/cases.py`、`routers/agent.py`、`routers/documents.py`、`services/text_verifier.py`、`services/session_token.py`（新增）、`static/index.html`、`static/train.html`、`tests/conftest.py`、`tests/test_api_routes.py`、`tests/test_security_fixes.py`（新增）、`README.md` |
 | 2026-10-21 | P1-8、P1-9、P2-9 | 测试精简与流程隔离：13→6 个文件、183 用例、0 skip、552.91s→3.78s；解析器 golden 改为运行期生成 DOCX；移除 `analysis.py` 四处 `load_dotenv(override=True)`（会在请求期把密钥写回 `os.environ`，是慢与不确定的根因）；`/api/analysis/status`、`/models` 加管理员认证；`.gitignore` 补 `.codex_tmp/`、`output/`；清理 uploads 残留 | `backend/tests/*`（重构）、`app/routers/analysis.py`、`.gitignore`、`.github/workflows/test.yml`、`README.md`、`PROJECT_MEMORY.md` |
@@ -597,7 +596,7 @@ ADMIN_PASSWORD=请在服务器环境中配置
 
 ## 当前状态
 
-- **版本**：**1.1.0**（2026-10-21 发布，变更见 `CHANGELOG.md`，tag `v1.1.0`）；软著登记版本为 V1.0.0，材料已冻结备份
+- **版本**：**1.1.0**（2026-10-21 发布，变更见 `CHANGELOG.md`，tag `v1.1.0`）；1.0.0 基线见 tag `v1.0.0`
 - **部署**：原阿里云轻量服务器 `39.106.218.131`（systemd 自启、80→8000 转发、生产库在 `/var/lib/jingui`）**已到期下线**，公网无访问地址；当前仅在本地运行（`uvicorn app.main:app`，数据落 `backend/data/`，由 `DATA_DIR` 控制）
 - **数据**：398条《伤寒论》全文 + 《金匮要略》25篇框架就绪待导入 + **9例训练病案**（初级3/中级3/高级3）。2026-08-06 生产库计数为条文 762 条；仓库内 `backend/data/tcm.db` 是空种子库（`classic_texts` 为 0 条），新克隆需先跑 `seed_texts.py` / `seed_cases.py`
 - **AI**：DeepSeek 官方 API，模型 `deepseek-chat`
@@ -608,7 +607,6 @@ ADMIN_PASSWORD=请在服务器环境中配置
 - **覆盖率**：**65%**（2026-10-21 实测，`--cov` 全套 7.41 秒）；`.coveragerc` 的 `fail_under = 0`（不阻断 CI）
 - **CI**：GitHub Actions（`.github/workflows/test.yml`），push/PR 自动运行测试+覆盖率；精简后本机全量约 4 秒，不再依赖外部 AI 服务
 - **安全**：写操作认证保护 + 频率限制 + 上传分级管控。第一批修复后：病案读接口不再下发答案（公开视图与 `/admin/` 分离）、训练会话凭 `X-Session-Token` 校验归属、`/live` + `/ready` 探针状态码正确、上传文件名 UUID 化并限定扩展名、管理端渲染已转义、内置默认口令已取消。**剩余：HTTPS/Nginx 未配置（P0-10 部分完成）、限流为单进程内存态**
-- **软著**：V1.0.0 已提交登记、审核中；申请版本冻结于 tag `softcopyright-v1.0.0`（`da1bc46`）；材料备份见 `backups/softcopyright_v1.0.0/` 与 `backups/jingui-softcopyright-V1.0.0-backup-20260818.zip`（另有跨卷副本）；两份提交 docx 已设只读
 - **改进追踪**：P0-5～P0-9 全部修复、P0-10 部分完成（HTTPS）；P1 已无待处理项（P1-2/P1-4/P1-9 三项部分完成）；全清单 34 项中剩 8 项待处理、8 项部分完成（详见上方改进清单）
 
 ---
@@ -651,20 +649,6 @@ ADMIN_PASSWORD=请在服务器环境中配置
 - **涉及文件**：`main.py`、`dependencies.py`、`schemas.py`、`routers/cases.py`、`routers/agent.py`、`routers/documents.py`、`services/text_verifier.py`、`services/session_token.py`（新增）、`static/index.html`、`static/train.html`、`tests/conftest.py`、`tests/test_api_routes.py`、`tests/test_security_fixes.py`（新增）
 
 ### 2026-10-21 会话记录
-
-**软著申请期：版本冻结与材料备份**
-
-- **背景**：V1.0.0 已于 2026-08-18 生成材料并提交软著登记，目前处于审核中。经确认：软著为形式审查、不比对代码，继续修改代码不影响本次登记；登记不冻结软件。随后执行版本冻结备份，为将来补正与举证留下可还原的锚点。
-- **冻结方式**：创建 annotated tag `softcopyright-v1.0.0` → `da1bc4639e59c45272278994a4a8dc4fd76d3c21`。已核对：该 commit 与 HEAD 一致，且 `backend/app`、`backend/static` 无未提交改动，因此提交材料内容 = 该 commit 的代码。
-- **备份位置（三处）**：
-  1. `backups/softcopyright_v1.0.0/`（191 文件 / 52.1 MB）：`01_提交材料`（两份最终 docx）、`02_渲染PDF`（4 个历史版本）、`03_页面截图`、`04_生成脚本`、`05_源代码快照-da1bc46.zip`、`06_数据快照`、`08_完整材料镜像`（170 文件 / 45.5 MB）。
-  2. `backups/jingui-softcopyright-V1.0.0-backup-20260818.zip`（44.3 MB，SHA-256 `2FAC5334C33D7ECFDDCA2859C4BE2BB2B11DAC48F3F7E94AD9E6D82C4F0B36BE`，中文条目名解码已验证）。
-  3. 跨卷副本 `C:\Users\言行\jingui-softcopyright-backup-v1.0.0\`（193 文件 / 96.4 MB）。
-- **校验记录**：`backups/99_备份校验记录.txt`（tag 指向、zip 哈希、关键件逐字节复核均为 OK）；说明文档 `backups/softcopyright_v1.0.0/00_备份说明.md`。
-- **保护动作**：两份已提交 docx（`output/softcopyright_20260818/` 原件与备份副本）设为只读，防止重跑 `build_softcopyright_docs.py` 时误覆盖。
-- **材料覆盖范围**（按 `build_softcopyright_docs.py` 同规则重算：36 文件 / 8876 显示行）：前 30 页 = `app/__init__.py` → `app/routers/documents.py`；后 30 页 = `static/showcase.html` 尾部 + `study.html` + `train.html` + `user.html`。`app/services/*`、`app/schemas.py`、`static/index.html`、`newcase.html`、`jingui-theme.css`、`jingui-motion.js` 不在材料页内。
-- **说明**：说明书载明"8992 行"，重算显示行为 8876 行，差异源于字符替换与统计口径（是否计入文件头/空行），不影响材料一致性与登记。
-- **涉及文件**：`PROJECT_MEMORY.md`（本记录）、`backups/`（未入 git，已被 `.gitignore` 覆盖）
 
 **全项目审计（未改代码，仅记录）**
 

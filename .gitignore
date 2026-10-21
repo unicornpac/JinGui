@@ -26,9 +26,9 @@ backups/
 backend/uploads/*
 !backend/uploads/.gitkeep
 
-# 本地临时产物（审计工作区、软著渲染输出、备份），不入库
+# 本地临时产物（审计工作区、渲染输出、备份），不入库
 .codex_tmp/
 output/
 
-# 软著申请材料（本地草稿，不入库）
-软件著作权说明书_草稿.md
+# 本地写作草稿（不入库）
+*说明书_草稿.md
