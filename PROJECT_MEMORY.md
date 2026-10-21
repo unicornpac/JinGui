@@ -4,7 +4,7 @@
 
 构建基于大模型的《金匮要略》临床思辨训练智能体，帮助学生通过"病脉证并治"框架进行三阶梯多轮交互训练。
 - 周期：2026年4月 — 2027年3月
-- **当前完成度**：后端+前端可运行，9例结构化训练病例，396条经典条文，127个自动化测试，P0安全修复完成
+- **当前完成度**：后端+前端可运行，9 例结构化训练病例，生产库 762 条经典条文，183 个自动化测试（0 skip，全套 3.8 秒）；软著 V1.0.0 审核中、申请版本已冻结备份；P0 安全风险已处置（P0-10 的 HTTPS 待服务器配置）；原公网实例已到期，当前仅本地运行
 
 ---
 
@@ -12,7 +12,7 @@
 
 ```
 FastAPI (Python 3.11) + SQLite + 原生 HTML/CSS/JS
-AI: Linvk (ai.linvk.com) → deepseek/deepseek-v4-flash
+AI: OpenAI 兼容接口（当前配置为 DeepSeek 官方 api.deepseek.com / deepseek-chat）
 ```
 
 三层结构：
@@ -167,8 +167,11 @@ backend/
 
 ## 部署信息
 
-- **服务器**：阿里云轻量服务器，Ubuntu 22.04
-- **公网 IP**：`39.106.218.131`
+> **2026-10-21 状态更新**：原阿里云实例已到期下线，公网无访问地址，系统当前仅在本地运行。
+> 以下信息保留为历史部署记录，重新部署时需重新确认。
+
+- **服务器**：阿里云轻量服务器，Ubuntu 22.04（已下线）
+- **公网 IP**：`39.106.218.131`（已不可访问）
 - **端口**：80 → iptables 转发到 8000（安全组已开放80、8000）
 - **systemd 服务**：`/etc/systemd/system/jingui.service`（开机自启）
 - **部署方式**：服务器已安装 Git，`cd /root/JinGui && sudo git pull && sudo systemctl restart jingui`
@@ -212,6 +215,7 @@ ADMIN_PASSWORD=请在服务器环境中配置
 - **建议方案**：给所有 `/api/texts/`、`/api/cases/`、`/api/documents/`、`/api/agent/sessions` 等写操作路由添加认证依赖；或使用 FastAPI 中间件统一拦截 `/api/` 下非 GET 请求。
 - **状态**：✅ 已完成（2026-07-25）
 - **实现**：创建 `app/dependencies.py` 共享 `verify_admin`；所有写操作端点（POST/PUT/DELETE）添加 `_admin: str = Depends(verify_admin)`；覆盖 texts/cases/documents/analysis/agent 五个路由模块共 13 个端点。后续（2026-07-31）分离了页面认证与 API 认证，避免公开页面触发浏览器密码弹窗。
+- **⚠️ 2026-10-21 审计更正**：本条只覆盖了**写**操作。读接口仍在泄漏答案——`GET /api/cases/` 未认证返回 `correct_answer`/`teaching_points`，`/api/agent/session/{id}/evaluate` 无归属校验且返回 `case_correct_answer`。详见 P0-5、P0-7。
 
 ### P0-2. 无请求频率限制（Rate Limiting）
 
@@ -248,7 +252,8 @@ ADMIN_PASSWORD=请在服务器环境中配置
 - **影响**：故障定位效率低，无法关联请求链路。
 - **位置**：全局
 - **建议方案**：接入 Python `logging` 模块，配置 JSON 格式输出；使用 `starlette-context` 或自定义中间件注入 `X-Request-ID`；AI 调用记录请求耗时和 token 用量。
-- **状态**：🟡 待处理
+- **状态**：✅ 已完成（2026-10-21 更正：`app/logger.py` 已实现结构化日志 + `ContextVar` request_id，`main.py` 中间件注入 `X-Request-ID` 并回写响应头，全项目已改用 `get_logger`）
+- **遗留**：AI 调用的耗时/token 用量尚未记录；`text_verifier.py` 漏了 logger 定义（见 P1-7）。
 
 ### P1-2. 添加健康检查端点
 
@@ -256,7 +261,7 @@ ADMIN_PASSWORD=请在服务器环境中配置
 - **影响**：负载均衡器/监控系统无法自动摘除故障节点。
 - **位置**：`app/main.py`
 - **建议方案**：添加 `GET /health` 返回 `{"status":"ok","db":"connected","ai":"ready"}`，返回 200 或 503。
-- **状态**：🟡 待处理
+- **状态**：🟠 部分完成（2026-10-21 更正：端点已存在并检查 DB + AI，但 `return {...}, status` 使状态码恒为 200、响应体被编码成数组，部署校验因此失效。修复方案见 P0-6）
 
 ### P1-3. Router 层测试覆盖（当前 ~0% 覆盖）
 
@@ -264,7 +269,7 @@ ADMIN_PASSWORD=请在服务器环境中配置
 - **影响**：重构或新增功能时容易引入 bug，且需要手动验证。
 - **位置**：`backend/tests/`（缺少 `test_texts.py`、`test_cases.py` 等）
 - **建议方案**：参考 `test_api_routes.py` 的 `dependency_overrides` 模式，为 CRUD 路由补充集成测试。
-- **状态**：🟡 待处理
+- **状态**：✅ 已完成（2026-10-21 更正：`test_texts.py`、`test_cases.py`、`test_documents.py` 均已存在，路由层已有集成测试）
 
 ### P1-4. agent_service.py 拆分解耦
 
@@ -277,7 +282,7 @@ ADMIN_PASSWORD=请在服务器环境中配置
   - `services/safety.py` — 越狱检测 + 玩笑请求处理（`_detect_hard_jailbreak` 等）
   - `services/progress.py` — 进度分析与判断（`_analyze_progress`、`_ai_check_progress`）
   - `services/western_data.py` — 西医检查数据生成（`_generate_western_test_context`）
-- **状态**：🟡 待处理
+- **状态**：🟠 部分完成（2026-10-21 更正：`safety.py`、`progress.py`、`western_data.py`、`treatment_safety.py` 已拆出；`agent_service.py` 仍约 660 行，会话编排、LLM 调用、提示词拼装、评价逻辑仍在类内）
 
 ### P1-5. `get_agent()` 全局单例问题
 
@@ -288,7 +293,7 @@ ADMIN_PASSWORD=请在服务器环境中配置
 - **影响**：潜在的并发状态污染，测试复杂度上升。
 - **位置**：`app/services/agent_service.py:573-579`
 - **建议方案**：改为 FastAPI 依赖注入模式——用 `Depends(get_agent)` 创建请求级实例，或使用 `contextvars` 实现请求作用域单例。
-- **状态**：🟡 待处理
+- **状态**：✅ 已完成（2026-10-21 更正：`get_agent()` 已改为每次返回新的 `TrainingAgent()`，路由经 `Depends(get_agent)` 注入）
 
 ### P1-6. 文档上传失败可诊断与可重试
 
@@ -306,7 +311,7 @@ ADMIN_PASSWORD=请在服务器环境中配置
 - **影响**：未来新增字段或表时，要么丢失数据重建，要么手动写 SQL。
 - **位置**：`app/models.py`、`app/database.py`
 - **建议方案**：接入 Alembic，`alembic init` → 配置 `alembic.ini` → 生成 migration 脚本。
-- **状态**：🟠 待处理
+- **状态**：✅ 已完成（2026-10-21 更正：`alembic/` 已就位，`database.init_db()` 调用 `command.upgrade(cfg, "head")`；含 `bb356c8cc735` 建表与 `d32e4c7f91ab` 遗留库补列两个 revision）
 
 ### P2-2. 前端工程化
 
@@ -316,7 +321,7 @@ ADMIN_PASSWORD=请在服务器环境中配置
 - **建议方案**：
   - 短期：提取公共 CSS/JS 到独立文件，HTML 引用
   - 长期：考虑 Vue.js / React 或轻量方案（Alpine.js + Tailwind CSS），Vite 构建
-- **状态**：🟠 待处理
+- **状态**：🟠 部分完成（2026-10-21 更正：已抽出共享 `jingui-theme.css`（40 KB）与 `jingui-motion.js`；各页 HTML 仍为内联 CSS/JS 单体）
 
 ### P2-3. API 分页元数据
 
@@ -367,7 +372,7 @@ ADMIN_PASSWORD=请在服务器环境中配置
 - **影响**：用户体验差，尤其是 AI 响应慢时。
 - **位置**：`backend/static/train.html`
 - **建议方案**：添加骨架屏/打字动画；`window.onerror` 全局错误处理；超时提示"AI 响应较慢，请稍候"。
-- **状态**：🟢 待处理
+- **状态**：🟠 部分完成（2026-10-21 更正：`train.html` 已有 `showLoading()` 打字动画与按钮禁用；仍缺 `window.onerror` 与超时提示）
 
 ### P3-3. 数据导出功能
 
@@ -402,15 +407,122 @@ ADMIN_PASSWORD=请在服务器环境中配置
 
 ---
 
+### 2026-10-21 审计新增项
+
+> 来源：2026-10-21 全项目审计（见工作日志）。状态标记：🔴 未修复 / 🟡 待处理 / 🟠 部分完成 / ✅ 已完成。
+> 纪律：软著 V1.0.0 已冻结于 tag `softcopyright-v1.0.0`，以下修复须遵守"不改名称/版本号/著作权人、不删 git 历史"。
+
+#### P0-5. 病案读接口未认证即返回标准答案
+
+- **问题**：`GET /api/cases/`、`GET /api/cases/{id}` 无认证依赖，而 `MedicalCaseResponse` 含 `correct_answer`、`teaching_points`、`diagnosis`、`prescription`。实测未带凭据即返回答案原文。
+- **影响**：训练系统唯一的约束（学生看不到答案）可被一条 `curl` 绕过，产品逻辑失效。
+- **位置**：`app/routers/cases.py:30-48`、`:66-75`、`app/schemas.py:100-106`
+- **方案**：新增 `MedicalCasePublicResponse`（仅症状/内容/难度/标题），公开列表与详情改用它；管理端读取走新增的 `/api/cases/admin/`（`Depends(verify_admin)`）；`static/index.html` 改调该端点。
+- **状态**：✅ 已完成（2026-10-21）：公开 `GET /`、`GET /{id}` 已改用 `MedicalCasePublicResponse`，新增 `GET /admin/`、`GET /admin/{id}`；`index.html` 病案管理改调 admin 端点；回归测试 `test_security_fixes.py::TestCaseAnswerExposure`（断言 4 个答案字段均不下发）
+
+#### P0-6. `/health` 返回码恒为 200，响应体被编码成数组
+
+- **问题**：`return {...}, http_status` 不被 FastAPI 支持，实测 `GET /health` → `200` + `[{"status":"ok","db":"connected","ai":"not_configured"},200]`。
+- **影响**：部署脚本与外部监控永远认为服务健康；`server_deploy.sh` 的部署验收形同虚设。
+- **位置**：`app/main.py:99-137`、`server_deploy.sh:235-253`
+- **方案**：改用 `JSONResponse(status_code=..., content=...)`；拆分为 `/live`（进程存活，恒 200）与 `/ready`（DB + AI，异常 503）；部署脚本改查 `/ready`。
+- **状态**：✅ 已完成（2026-10-21）：新增 `/live`（恒 200）、`/ready`（DB 异常 503），`/health` 保留为兼容别名，状态码改由 `JSONResponse` 指定；回归测试 `test_security_fixes.py::TestHealthProbes`（含 DB 故障返回 503、返回体必须是对象）。`server_deploy.sh` 仍查 `/health`（现可正确失败），待第二批改为 `/ready`
+
+#### P0-7. 评价接口无归属校验，且泄漏参考答案
+
+- **问题**：`POST /api/agent/session/{id}/evaluate` 既无管理员认证、也不校验 `session.student_id` 归属，响应含 `case_correct_answer`。`session_id` 为自增整数。
+- **影响**：枚举 id 可批量获取全部病案答案，并可给他人会话写入 `score`、污染教学数据。
+- **位置**：`app/routers/agent.py:146-198`
+- **方案**：创建会话时签发不可猜测的 `session_token`，`message` / `evaluate` 校验 token 归属；答案揭晓改为一次性 `reveal_token`；如需教师端跨会话评价，走带 `verify_admin` 的独立端点。
+- **状态**：✅ 已完成（2026-10-21，实现方式与原方案不同）：新增 `services/session_token.py`，用 `HMAC-SHA256(session_id, SESSION_SECRET|ADMIN_PASSWORD)` 派生令牌，**不落库、无需 Alembic 迁移**；`session_token` 随 `start_session` 下发，`/message` 与 `/evaluate` 校验 `X-Session-Token`（缺失/错误 → 403），`GET /session/{id}` 改为 `verify_admin`；`train.html` 已保存并回传令牌；回归测试 `TestSessionOwnership`
+
+#### P0-8. 上传文件名未净化，可路径穿越
+
+- **问题**：`safe_filename = f"{timestamp}_{file.filename}"` 直接用客户端提供的 `file.filename` 拼 `os.path.join`，未取 basename、未校验扩展名。
+- **影响**：`filename="../../x.txt"` 或绝对路径可写出上传目录（需管理员凭据，但可与 XSS 叠加升级为任意写）。
+- **位置**：`app/routers/documents.py:231-234`
+- **方案**：`Path(filename).name` + 扩展名白名单 + UUID 前缀；原始文件名仅用于展示与 `Document.filename` 字段。
+- **状态**：✅ 已完成（2026-10-21）：落盘名改为 `时间戳_UUID8.扩展名`，原始名只作展示；新增 `ALLOWED_EXTENSIONS` 白名单，非白名单扩展名直接 400；回归测试 `TestUploadPathTraversal`（含 `../../evil.txt` 与 `.sh` 两个用例）
+
+#### P0-9. 管理端存储型 XSS（学生输入 → 教师后台执行）
+
+- **问题**：`static/index.html` 会话详情 `dInfo.innerHTML` / `dChat.innerHTML` 直接拼接 `student_id`、`case_title`、`m.content`；训练记录表拼接 `r.student_id`。文件内已有 `escHtml()` 但未用于这些位置。
+- **影响**：学生在对话中提交 `<img src=x onerror=...>`，教师打开会话详情即在 Basic Auth 上下文执行脚本，可读删全部数据。
+- **位置**：`static/index.html:356-365`、`:377-381`
+- **方案**：改用文本节点或 `escHtml()`；导出/渲染类拼接统一走同一转义函数。
+- **状态**：✅ 已完成（2026-10-21）：训练记录表与会话详情改为"白名单校验 + `escHtml` + `textContent`"，反馈面板补转义 `category`，`FeedbackCreate.category` 改为 `Literal` 枚举收口（避免任意字符串入库再被渲染）；回归测试 `TestFeedbackValidation`
+
+#### P0-10. 网络与凭据基线
+
+- **问题**：`CORSMiddleware(allow_origins=["*"], allow_credentials=True)`；`/docs`、`/redoc` 公开；`ADMIN_PASSWORD` 缺省回落成 `jingui2026`；生产以明文 HTTP 提供 Basic Auth。
+- **影响**：管理凭据随每个请求在网络明文传输；默认口令可被直接试探。
+- **位置**：`app/main.py:48-54`、`app/main.py:36-37`、`app/dependencies.py:21`
+- **方案**：CORS 收敛到实际域名；生产关闭或认证保护 `/docs`；`ADMIN_PASSWORD` 未设置时启动即失败；前置 Nginx + HTTPS。
+- **状态**：🟠 部分完成（2026-10-21）：已取消内置默认口令（未配置 `ADMIN_PASSWORD` 时任何密码都不通过）、CORS 改为默认不放行任何来源并可按 `CORS_ORIGINS` 显式配置、`DISABLE_DOCS=1` 可关闭交互式文档；**HTTPS 与 Nginx 反向代理属服务器侧配置，仍未落地**
+
+#### P1-7. `text_verifier.py` 未定义 `logger`
+
+- **问题**：第 159 行使用 `logger.warning`，但全文件无 `logger = get_logger(__name__)`（实测模块内不存在该名字）。
+- **影响**：LLM 调用失败时本应降级为"校验失败"，实际抛 `NameError` 变 500，且丢失原异常。
+- **位置**：`app/services/text_verifier.py:159`
+- **方案**：补 logger；同时把 `expected_section`、`fixed` 补进 `TextVerifyResponse`（当前被 response_model 静默丢弃）。
+- **状态**：✅ 已完成（2026-10-21）：补 `logger = get_logger(__name__)`，两个字段已进 `TextVerifyResponse`；回归测试 `TestVerifierLogging`（模拟 LLM 失败时降级返回 `{}` 而非抛 `NameError`）
+
+#### P1-8. 解析器 golden 回归测试长期空转
+
+- **问题**：`test_parser_regression.py` 的 16 个用例依赖 `backend/uploads/20260801_165919_伤寒论原文398条整理.docx`，而 `backend/uploads/*` 被 `.gitignore` 排除（目录内仅有测试残留 `test.txt`）。
+- **影响**：全项目最复杂、最易回归、直接决定数据正确性的解析器，唯一有 golden sample 的测试在本地与 CI 均 skip；"176 passed" 存在虚高。
+- **位置**：`backend/tests/test_parser_regression.py:17-25`
+- **方案**：把该 DOCX（或裁剪后的小样本 + 纯文本 golden）放入 `backend/tests/fixtures/`，并让 `.gitignore` 例外放行。
+- **状态**：✅ 已完成（2026-10-21，实现方式更彻底）：`test_parser.py` 在运行期用 python-docx **即时生成**样本（章标题切换、行首罗马数字、中文数字条号、异体字、重复条号），不再需要任何外部二进制文件；原 16 个 skip 归零，并补了 source_book 推断与短文档回退用例
+
+#### P1-9. 测试环境未隔离，污染工作区
+
+- **问题**：`test_analysis.py` 在有 Key 时真实调用 LLM；`backend/uploads/` 累积 17 个 `*_test.txt` 无清理；`backend/data/tcm.db` 被 git 跟踪，跑测试后出现 `M`；`.codex_tmp/`、`output/` 未纳入 `.gitignore`（合计 65 MB 未追踪）。
+- **影响**：测试慢（417s）且结果依赖外部服务；`git status` 长期带噪音，易误提交运行时数据。
+- **位置**：`backend/tests/*`、`backend/.gitignore`（仓库根 `.gitignore`）
+- **方案**：测试统一 `monkeypatch` AI 服务返回桩；`DATA_DIR` 指向 `tmp_path`；上传目录用临时目录；`backend/data/tcm.db` 移出版本控制并由 `seed_*.py` 首次生成；补 `.gitignore` 条目。
+- **状态**：🟠 大部分完成（2026-10-21）：`conftest.py` 已把 `DATA_DIR` 指向进程级临时目录（数据库与上传目录都不再落在仓库）、启动期迁移与上传后台解析已打桩、AI 环境变量默认置空、`.gitignore` 已补 `.codex_tmp/`/`output/`、uploads 残留已清理；**唯一未做的是把 `backend/data/tcm.db` 移出版本控制**（涉及现有本地数据，需单独确认后再操作）
+
+#### P2-7. 无学员身份与会话恢复
+
+- **问题**：`student_id` 由前端生成 `'student_' + Date.now()`，每次训练都是新身份；`sessionId` 仅存内存（`train.html:303`），刷新即断。
+- **影响**：教师无法按学生/班级归档训练与评分；学生误刷新丢失整轮训练。
+- **位置**：`static/train.html:303`、`:324`、`app/routers/agent.py`
+- **方案**：学号/昵称存 localStorage + 服务端 `session_token`；会话 id 落 localStorage 支持恢复。
+- **状态**：🟡 待处理
+
+#### P2-8. 阶段进度判定可被关键词刷分
+
+- **问题**：`_analyze_progress` 的 `disease_hit` / `pulse_hit` 对 `history[-10:]` 的**全部文本（含 AI 患者消息）**做子串匹配。
+- **影响**：学生一句"太阳病，脉浮"即可同时点亮中级/高级的辨病与平脉；AI 患者若意外提到病名也会误判。
+- **位置**：`app/services/agent_service.py:448-455`
+- **方案**：仅统计 `role == "user"` 的消息；要求关键词出现在判断性语境中，或改为"规则兜底 + 一次 LLM 复核"双判。
+- **状态**：🟡 待处理
+
+#### P2-9. 配置与常量重复
+
+- **问题**：读取 `.env` 的"load_dotenv + 手工解析写 os.environ"在 `analysis.py` 出现 3 次，`main.py`、`ai_service.py`、`agent_service.py` 各 1 次；病证/方剂关键词表在 `_detect_classic_context`、`_analyze_progress`、`progress.extract_decision_point` 三处重复维护。
+- **影响**：改一处漏两处；运行期写 `os.environ` 有副作用、难以测试。
+- **位置**：`app/routers/analysis.py:17-96`、`app/services/agent_service.py:117-137`、`app/services/progress.py:22-35`
+- **方案**：抽 `app/config.py`（pydantic-settings）统一加载；病证/方剂表收敛为单一常量模块。
+- **状态**：🟠 部分完成（2026-10-21）：`analysis.py` 中 4 处 `load_dotenv(override=True)` 与手工 `.env` 解析已全部删除（它们会在请求期把密钥写回 `os.environ`），配置改为启动时一次加载；**`config.py` 统一入口与关键词表收敛仍未做**
+
+---
+
 ### 当前进度统计
 
-| 优先级 | 总数 | 已完成 | 进行中 | 待处理 |
+| 优先级 | 总数 | 已完成 | 部分完成 | 待处理 |
 |--------|------|--------|--------|--------|
-| P0     | 4    | 4      | 0      | 0      |
-| P1     | 6    | 1      | 0      | 5      |
-| P2     | 6    | 1      | 0      | 5      |
-| P3     | 6    | 1      | 1      | 4      |
-| **合计** | **22** | **7** | **1** | **14** |
+| P0     | 10   | 9      | 1      | 0      |
+| P1     | 9    | 6      | 3      | 0      |
+| P2     | 9    | 2      | 2      | 5      |
+| P3     | 6    | 1      | 2      | 3      |
+| **合计** | **34** | **18** | **8** | **8** |
+
+> 2026-10-21 更新：新增审计项 12 项（P0-5～P0-10 共 6、P1-7～P1-9 共 3、P2-7～P2-9 共 3）；同时按代码实际状态更正原条目（P1-1/P1-3/P1-5 已完成、P2-1 已完成、P1-2/P1-4/P2-2/P3-2 部分完成）。
+> 2026-10-21 第一批修复：P0-5～P0-9 与 P1-7 已完成，P0-10 部分完成（HTTPS/Nginx 待服务器侧配置）。P0 的实质风险已处置，统计记作「完成 9 + 部分 1」。
+> 2026-10-21 测试精简：P1-8 完成（解析器 golden 改为运行期生成）、P1-9 大部分完成、P2-9 部分完成；**P1 已清零**。剩余 P2（分页元数据、Docker、废弃 API、学员身份、进度刷分）与 P3。
 
 ---
 
@@ -432,6 +544,10 @@ ADMIN_PASSWORD=请在服务器环境中配置
 | 2026-08-03 | P2-6 | 条文导入系统全面重构：parser.py全新切分算法、raw_content双字段、质量闸门、暂存审核流程、管理端导入面板 | `parser.py`（重写）、`models.py`、`database.py`、`documents.py`（重写）、`import_validator.py`（新增）、`import_review.py`（新增）、`main.py`、`index.html`、`server_deploy.sh` |
 | 2026-08-04 | — | 新增用户反馈功能：feedbacks表 + 4个API端点 + 训练页反馈按钮/弹窗 + 管理端反馈面板 | `models.py`、`schemas.py`、`routers/feedback.py`（新增）、`main.py`、`train.html`、`index.html`、`server_deploy.sh` |
 | 2026-08-05 | — | 修复文档解析三大Bug：阈值过高导致金匮单章被丢弃、legacy正则括号方向错误、PDF/Excel缺paragraphs字段 | `parser.py` |
+| 2026-10-21 | — | 软著 V1.0.0 版本冻结备份：创建 tag `softcopyright-v1.0.0`，材料分类备份 + 完整镜像 + 源码快照 + 跨卷副本，两份提交 docx 设只读 | `PROJECT_MEMORY.md`、`backups/`（未入 git） |
+| 2026-10-21 | — | 全项目审计并更正文档：新增 P0-5～P0-10、P1-7～P1-9、P2-7～P2-9 共 12 项；按代码实际状态更正 P1-1/P1-3/P1-5/P2-1（已完成）与 P1-2/P1-4/P2-2/P3-2（部分完成）；测试数 127→176 | `PROJECT_MEMORY.md` |
+| 2026-10-21 | P0-5～P0-10、P1-7 | 第一批安全修复落地：病案读接口答案裁剪、会话归属令牌、`/live`+`/ready` 探针、上传文件名净化、管理端 XSS 转义、取消内置默认口令、校验器 logger；新增 19 个安全回归测试（195 passed） | `main.py`、`dependencies.py`、`schemas.py`、`routers/cases.py`、`routers/agent.py`、`routers/documents.py`、`services/text_verifier.py`、`services/session_token.py`（新增）、`static/index.html`、`static/train.html`、`tests/conftest.py`、`tests/test_api_routes.py`、`tests/test_security_fixes.py`（新增）、`README.md` |
+| 2026-10-21 | P1-8、P1-9、P2-9 | 测试精简与流程隔离：13→6 个文件、183 用例、0 skip、552.91s→3.78s；解析器 golden 改为运行期生成 DOCX；移除 `analysis.py` 四处 `load_dotenv(override=True)`（会在请求期把密钥写回 `os.environ`，是慢与不确定的根因）；`/api/analysis/status`、`/models` 加管理员认证；`.gitignore` 补 `.codex_tmp/`、`output/`；清理 uploads 残留 | `backend/tests/*`（重构）、`app/routers/analysis.py`、`.gitignore`、`.github/workflows/test.yml`、`README.md`、`PROJECT_MEMORY.md` |
 
 ---
 
@@ -481,21 +597,88 @@ ADMIN_PASSWORD=请在服务器环境中配置
 
 ## 当前状态
 
-- **部署**：阿里云轻量服务器 `39.106.218.131`，systemd 开机自启，80端口转发到8000；生产数据库独立存放于 `/var/lib/jingui`
-- **数据**：398条《伤寒论》全文 + 《金匮要略》25篇框架就绪待导入 + **9例训练病案**（初级3/中级3/高级3）
+- **部署**：原阿里云轻量服务器 `39.106.218.131`（systemd 自启、80→8000 转发、生产库在 `/var/lib/jingui`）**已到期下线**，公网无访问地址；当前仅在本地运行（`uvicorn app.main:app`，数据落 `backend/data/`，由 `DATA_DIR` 控制）
+- **数据**：398条《伤寒论》全文 + 《金匮要略》25篇框架就绪待导入 + **9例训练病案**（初级3/中级3/高级3）。2026-08-06 生产库计数为条文 762 条；仓库内 `backend/data/tcm.db` 是空种子库（`classic_texts` 为 0 条），新克隆需先跑 `seed_texts.py` / `seed_cases.py`
 - **AI**：DeepSeek 官方 API，模型 `deepseek-chat`
 - **前端**：6个页面（管理端、首页、训练端、学习页、Showcase、新首页），管理端含条文管理+导入审核+用户反馈面板
 - **提示词**：纯患者角色，含人格系统+情绪分级（大幅拉长节奏）+贴吧老哥模式+输入内容感知+西医检查适配+医学常识约束
 - **评价**：训练结束后自动匹配并展示相关《金匮要略》/《伤寒论》原条文
-- **测试**：**127 个自动化测试**（pytest），覆盖越狱检测、纯函数、进度分析、API 路由、解析器回归
-- **覆盖率**：pytest-cov 已配置（`.coveragerc`），总体 40%（models/schemas 100%，agent_service 52%）
-- **CI**：GitHub Actions（`.github/workflows/test.yml`），push/PR 自动运行测试+覆盖率
-- **安全**：API 写操作认证保护 + 频率限制 + 上传分级管控
-- **改进追踪**：P0 已清零，P1-P3 共 14 项待处理（详见上方改进清单）
+- **测试**：**6 个文件、183 个自动化测试、0 skip**（2026-10-21 精简后实测 `183 passed in 3.78s`；精简前为 13 个文件 / 195 用例 / 552.91s / 16 skip）；解析器回归改为运行期生成 DOCX，测试全程隔离在临时目录
+- **覆盖率**：**65%**（2026-10-21 实测，`--cov` 全套 7.41 秒）；`.coveragerc` 的 `fail_under = 0`（不阻断 CI）
+- **CI**：GitHub Actions（`.github/workflows/test.yml`），push/PR 自动运行测试+覆盖率；精简后本机全量约 4 秒，不再依赖外部 AI 服务
+- **安全**：写操作认证保护 + 频率限制 + 上传分级管控。第一批修复后：病案读接口不再下发答案（公开视图与 `/admin/` 分离）、训练会话凭 `X-Session-Token` 校验归属、`/live` + `/ready` 探针状态码正确、上传文件名 UUID 化并限定扩展名、管理端渲染已转义、内置默认口令已取消。**剩余：HTTPS/Nginx 未配置（P0-10 部分完成）、限流为单进程内存态**
+- **软著**：V1.0.0 已提交登记、审核中；申请版本冻结于 tag `softcopyright-v1.0.0`（`da1bc46`）；材料备份见 `backups/softcopyright_v1.0.0/` 与 `backups/jingui-softcopyright-V1.0.0-backup-20260818.zip`（另有跨卷副本）；两份提交 docx 已设只读
+- **改进追踪**：P0-5～P0-9 全部修复、P0-10 部分完成（HTTPS）；P1 已无待处理项（P1-2/P1-4/P1-9 三项部分完成）；全清单 34 项中剩 8 项待处理、8 项部分完成（详见上方改进清单）
 
 ---
 
 ## 工作日志
+
+### 2026-10-21 会话记录（晚）
+
+**测试精简与流程隔离**
+
+- **背景**：13 个测试文件、全套 552.91 秒、16 个用例长期 skip、跑测试会改动 `backend/uploads/` 与 `backend/data/tcm.db`。
+- **文件合并（13 → 6 + conftest）**：
+  - `test_services.py` ← 原 pure_functions / progress / jailbreak / treatment_safety / analysis_output_format
+  - `test_api_admin.py` ← 原 cases / texts / documents
+  - `test_api_agent.py` ← 原 api_routes 的会话部分 + agent_message_flow
+  - `test_api_misc.py` ← 原 analysis + 页面 / 公开统计 / 错误处理 / 反馈
+  - `test_security.py` ← 原 security_fixes
+  - `test_parser.py` ← 原 parser_regression（重写，见下）
+- **解析器回归真正生效**：原用例依赖 `backend/uploads/伤寒论原文398条整理.docx`，而该目录被 `.gitignore` 排除，本地与 CI 全部 skip。现改为运行期用 python-docx 生成覆盖各类边界的样本（章标题切换、行首罗马数字、中文数字条号、异体字 `並→并`、重复条号、source_book 推断、短文档回退），**skip 归零**。
+- **速度**：`552.91s / 195 passed / 16 skipped` → **`3.78s / 183 passed / 0 skipped`**。
+- **隔离**：`conftest.py` 将 `DATA_DIR` 指向进程级临时目录，数据库与上传目录都不再落在仓库；启动期迁移与上传后台解析在测试中打桩。
+- **根因修复（552 秒的真正来源）**：`analysis.py` 有三处 `load_dotenv(..., override=True)`，会在请求期把 `.env` 里的真实密钥写回 `os.environ`，使后续测试与请求真实调用 LLM。已删除这三处重复加载与手工 `.env` 解析（配置统一在应用启动时一次加载，`override=False`）；同时给 `/api/analysis/status`、`/api/analysis/models` 加上管理员认证——provider 名称与模型列表属于基础设施信息，不应公开。
+- **其他**：`.gitignore` 补 `.codex_tmp/`、`output/`；清理 `backend/uploads/` 下 18 个测试残留文件。
+- **用例数取舍**：195 → 183。少掉的是"每个端点各写一条 401 断言"这类重复用例，改为同一次请求内的多断言；语义覆盖未减少。
+- **涉及文件**：`backend/tests/` 全部重构、`app/routers/analysis.py`、`.gitignore`、`PROJECT_MEMORY.md`、`README.md`
+
+### 2026-10-21 会话记录（下午）
+
+**第一批 P0 修复落地（安全与正确性 7 项）**
+
+- **P0-6 健康检查**：`main.py` 新增 `/live`（存活，恒 200）与 `/ready`（就绪，DB 异常 503）；`/health` 保留为 `/ready` 的兼容别名，改用 `JSONResponse` 指定状态码。修复前 `return {...}, status` 被 FastAPI 编码成 `[body, 200]`，状态码恒 200，导致部署验收失真。
+- **P0-5 答案裁剪**：`schemas.py` 新增 `MedicalCasePublicResponse`（仅 id/title/content/symptoms/difficulty_level）；`routers/cases.py` 的 `GET /`、`GET /{id}` 改用公开视图，新增 `GET /admin/`、`GET /admin/{id}`（`verify_admin`）返回完整字段；`static/index.html` 病案管理改调 admin 端点。
+- **P0-7 会话归属**：新增 `services/session_token.py`（无状态 HMAC 派生，不落库、无需迁移）。`start_session` 返回 `session_token`；`/message`、`/evaluate` 通过 `X-Session-Token` 头校验，缺失或错误返回 403；`GET /session/{id}` 加管理员认证。`train.html` 保存并回传令牌。
+- **P0-8 上传文件名**：`documents.py` 落盘名改为 `时间戳_UUID8.扩展名`，原始名只用于展示；新增 `ALLOWED_EXTENSIONS` 白名单，非白名单扩展名直接 400。
+- **P0-9 存储型 XSS**：`index.html` 训练记录表与会话详情改用白名单 + `escHtml` + `textContent`（原三处直接拼接 `student_id` / `case_title` / 消息内容）；反馈面板补转义 `category`；`FeedbackCreate.category` 改为 `Literal` 枚举收口。
+- **P0-10 网络与凭据基线**：`dependencies.get_admin_password()` 取消内置默认口令，未配置 `ADMIN_PASSWORD` 时任何密码都不通过（`documents.py` 两处同步）；CORS 改为默认不放行任何来源、按 `CORS_ORIGINS` 显式配置；`DISABLE_DOCS=1` 可关闭 `/docs`、`/redoc`、`/openapi.json`；`conftest.py` 为测试环境 `setdefault` 管理员密码。
+- **P1-7 校验器 logger**：`text_verifier.py` 补 `logger = get_logger(__name__)`；`TextVerifyResponse` 补 `expected_section`、`fixed` 两个被 response_model 静默丢弃的字段。
+- **测试**：新增 `tests/test_security_fixes.py`（19 个用例，覆盖上述每一项：探针状态码与返回体形态、公开接口字段裁剪、会话令牌 403、路径穿越、扩展名白名单、logger 降级、反馈枚举）；`test_api_routes.py` 三处用例适配令牌与管理员认证。
+- **行为变更提示**：① 未设置 `ADMIN_PASSWORD` 的部署将无法登录管理端（这是刻意的，需在 `.env` 配置）；② 部署后正在进行中的旧会话因缺令牌会 403，需重新开始训练；③ 前端病案管理改用 `/api/cases/admin/`，与后端需同版本发布。
+- **涉及文件**：`main.py`、`dependencies.py`、`schemas.py`、`routers/cases.py`、`routers/agent.py`、`routers/documents.py`、`services/text_verifier.py`、`services/session_token.py`（新增）、`static/index.html`、`static/train.html`、`tests/conftest.py`、`tests/test_api_routes.py`、`tests/test_security_fixes.py`（新增）
+
+### 2026-10-21 会话记录
+
+**软著申请期：版本冻结与材料备份**
+
+- **背景**：V1.0.0 已于 2026-08-18 生成材料并提交软著登记，目前处于审核中。经确认：软著为形式审查、不比对代码，继续修改代码不影响本次登记；登记不冻结软件。随后执行版本冻结备份，为将来补正与举证留下可还原的锚点。
+- **冻结方式**：创建 annotated tag `softcopyright-v1.0.0` → `da1bc4639e59c45272278994a4a8dc4fd76d3c21`。已核对：该 commit 与 HEAD 一致，且 `backend/app`、`backend/static` 无未提交改动，因此提交材料内容 = 该 commit 的代码。
+- **备份位置（三处）**：
+  1. `backups/softcopyright_v1.0.0/`（191 文件 / 52.1 MB）：`01_提交材料`（两份最终 docx）、`02_渲染PDF`（4 个历史版本）、`03_页面截图`、`04_生成脚本`、`05_源代码快照-da1bc46.zip`、`06_数据快照`、`08_完整材料镜像`（170 文件 / 45.5 MB）。
+  2. `backups/jingui-softcopyright-V1.0.0-backup-20260818.zip`（44.3 MB，SHA-256 `2FAC5334C33D7ECFDDCA2859C4BE2BB2B11DAC48F3F7E94AD9E6D82C4F0B36BE`，中文条目名解码已验证）。
+  3. 跨卷副本 `C:\Users\言行\jingui-softcopyright-backup-v1.0.0\`（193 文件 / 96.4 MB）。
+- **校验记录**：`backups/99_备份校验记录.txt`（tag 指向、zip 哈希、关键件逐字节复核均为 OK）；说明文档 `backups/softcopyright_v1.0.0/00_备份说明.md`。
+- **保护动作**：两份已提交 docx（`output/softcopyright_20260818/` 原件与备份副本）设为只读，防止重跑 `build_softcopyright_docs.py` 时误覆盖。
+- **材料覆盖范围**（按 `build_softcopyright_docs.py` 同规则重算：36 文件 / 8876 显示行）：前 30 页 = `app/__init__.py` → `app/routers/documents.py`；后 30 页 = `static/showcase.html` 尾部 + `study.html` + `train.html` + `user.html`。`app/services/*`、`app/schemas.py`、`static/index.html`、`newcase.html`、`jingui-theme.css`、`jingui-motion.js` 不在材料页内。
+- **说明**：说明书载明"8992 行"，重算显示行为 8876 行，差异源于字符替换与统计口径（是否计入文件头/空行），不影响材料一致性与登记。
+- **涉及文件**：`PROJECT_MEMORY.md`（本记录）、`backups/`（未入 git，已被 `.gitignore` 覆盖）
+
+**全项目审计（未改代码，仅记录）**
+
+- **方法**：通读后端 10 个模块 + 7 个 router + 12 个测试文件 + 6 个前端页面 + 部署链路；实跑 `pytest`；用临时 TestClient 探针实测可疑端点（探针脚本已删除）。
+- **测试现状**：`176 passed, 16 skipped, 417.34s`（本机带真实 API Key 时的耗时；其中 `test_analysis.py` 会直连真实 LLM）。
+- **确认缺陷**（详细条目见下方 `### 2026-10-21 审计新增项`）：
+  1. **答案泄漏**：`GET /api/cases/` 未认证即返回 `correct_answer` / `teaching_points` / `diagnosis` / `prescription`（已实测返回原文）；`POST /api/agent/session/{id}/evaluate` 无归属校验且返回 `case_correct_answer`，枚举自增 id 即可逐个取答案。
+  2. **`/health` 状态码失效**：`main.py` 用 `return {...}, http_status`，FastAPI 不支持元组返回，实测得到 `200` + `[{"status":"ok",...},200]`。后果：`server_deploy.sh` 的 `curl -fsS /health` 只对 4xx/5xx 失败，数据库异常时部署仍报成功。
+  3. **`text_verifier.py` 未定义 `logger`**：`classify_text` 的异常分支会抛 `NameError` 冒到路由变 500，并丢失原始异常。
+  4. **上传文件名未净化**：`documents.py` 直接用 `file.filename` 拼路径，可路径穿越写出上传目录。
+  5. **管理端存储型 XSS**：`index.html` 会话详情用 `innerHTML` 拼接 `student_id` / `case_title` / 消息内容，学生输入会在教师后台以管理员上下文执行。
+  6. **最关键的回归测试空转**：`test_parser_regression.py` 的 16 个 golden 用例依赖 `backend/uploads/*.docx`，而 `uploads/*` 被 `.gitignore` 排除——本地与 CI 均 100% skip，16 skipped 即来自此文件。
+  7. **测试环境不隔离**：`test_analysis.py` 在有 Key 时真实调用 LLM（整套 417s）；`backend/uploads/` 残留 17 个 `*_test.txt`；`backend/data/tcm.db` 被 git 跟踪并因跑测试出现 `M`。
+- **文档更正**（本次同步修正，原记录与代码不符）：P1-1 / P1-3 / P1-5 实际已完成；P1-2 / P1-4 / P2-1 / P2-2 / P3-2 实际为部分完成或已完成；"当前状态"中测试数 127 → 176。P0-1 虽标"已完成"，但只覆盖了**写**操作，读接口的答案暴露未处理（见 P0-5）。
+- **涉及文件**：`PROJECT_MEMORY.md`
 
 ### 2026-08-06 会话记录
 

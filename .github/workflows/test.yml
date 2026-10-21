@@ -40,7 +40,7 @@ jobs:
           echo "=== 应用导入 ===" && python -c "from app.main import app; print('OK')" 2>&1
 
       - name: 运行测试
-        run: python -m pytest tests/ --cov --cov-report=term-missing --tb=short -q
+        run: python -m pytest tests/ --cov --cov-report=term-missing --cov-report=html --tb=short -q
 
       - name: 上传覆盖率报告
         uses: actions/upload-artifact@v5

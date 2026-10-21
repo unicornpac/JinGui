@@ -55,7 +55,7 @@ JinGui/
 │   │   │   ├── parser.py        # 文档解析与条文提取
 │   │   │   └── ai_service.py    # AI API 调用封装
 │   │   └── utils/               # 工具函数
-│   ├── tests/                   # 12 个测试文件，覆盖 API 路由、解析器、越狱检测、进度逻辑等
+│   ├── tests/                   # 6 个测试文件 + conftest（183 个用例，全套约 4 秒，无 skip）
 │   ├── static/                  # 前端页面（index/newcase/train/study/showcase/user）
 │   ├── data/tcm.db              # SQLite 数据库
 │   ├── requirements.txt
@@ -99,13 +99,14 @@ cp .env.example .env  # 如无示例文件，手动创建 .env 配置以下变�
 # OPENAI_BASE_URL=https://api.deepseek.com
 # OPENAI_API_KEY=your_api_key
 # AI_MODEL=deepseek-chat
+# ADMIN_PASSWORD=你的管理密码   # 未设置则管理端无法登录（无内置默认口令）
 
 # 5. 启动服务
 bash start.sh
 # Windows:
 cd backend && uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
-# 6. 导入种子数据（可选）
+# 6. 导入种子数据（首次必做：仓库内 backend/data/tcm.db 是空种子库，不导入则条文页为空）
 python backend/seed_texts.py
 python backend/seed_cases.py
 ```
@@ -116,25 +117,35 @@ python backend/seed_cases.py
 
 ```bash
 cd backend
-pytest tests/ -v          # 运行全部测试
+pytest tests/ -v          # 183 个用例，约 4 秒
 pytest tests/ --cov=app   # 含覆盖率报告
 ```
+
+测试有三条硬约定（见 `tests/conftest.py`）：
+
+- **不碰真实数据**：`DATA_DIR` 指向进程级临时目录，不会写入 `backend/data/tcm.db` 或 `backend/uploads/`。
+- **不发外部请求**：AI 环境变量默认置空，用例不会调用真实模型；需要验证“已配置”分支时用例内临时打开。
+- **不依赖仓库外文件**：解析器回归测试在运行期即时生成 DOCX 样本。
 
 ## API 端点摘要
 
 | 路径 | 方法 | 说明 |
 |---|---|---|
-| `/health` | GET | 健康检查（DB + AI 连通性） |
+| `/live` | GET | 存活探针（进程能响应即 200） |
+| `/ready` | GET | 就绪探针（数据库异常返回 503） |
+| `/health` | GET | 等价于 `/ready`，保留给既有部署脚本与监控 |
 | `/api/texts/` | GET/POST | 条文列表 / 创建 |
 | `/api/texts/{id}` | GET/PUT/DELETE | 单条条文操作 |
 | `/api/texts/verify` | POST | 互联网校验条文 |
-| `/api/cases/` | GET/POST | 病案列表 / 创建 |
-| `/api/cases/{id}` | GET/PUT/DELETE | 单个病案操作 |
+| `/api/cases/` | GET/POST | 病案列表（**公开视图，不含答案**）/ 创建 |
+| `/api/cases/admin/` | GET | 病案列表（管理端，含诊断/方剂/教学要点/参考答案，需认证） |
+| `/api/cases/admin/{id}` | GET | 单个病案（管理端完整字段） |
+| `/api/cases/{id}` | GET/PUT/DELETE | 单个病案操作（GET 为公开视图） |
 | `/api/analysis/` | POST | AI 条文分析 |
 | `/api/documents/upload` | POST | 上传文档自动解析 |
 | `/api/agent/session/start` | POST | 开始训练会话 |
-| `/api/agent/session/{id}/message` | POST | 发送消息（多轮交互） |
-| `/api/agent/session/{id}/evaluate` | POST | 结束并评价 |
+| `/api/agent/session/{id}/message` | POST | 发送消息（多轮交互，需 `X-Session-Token`） |
+| `/api/agent/session/{id}/evaluate` | POST | 结束并评价（需 `X-Session-Token`，响应含参考答案） |
 | `/api/agent/public-stats` | GET | 公开统计数据 |
 | `/api/feedback/` | GET/POST | 反馈列表 / 提交 |
 | `/api/import/` | GET | 导入批次管理 |
@@ -155,6 +166,10 @@ pytest tests/ --cov=app   # 含覆盖率报告
 AI 患者的回答风格会随机切换（正常/话痨/焦虑/硬汉/迷糊/戏精），模拟真实临床场景。训练结束后，系统自动生成评价报告，展示参考答案和相关经典条文。
 
 ## 部署
+
+> **当前状态**：原公网实例（阿里云 `39.106.218.131`）已到期下线，系统现在**仅在本地运行**。
+> 以下部署说明保留给将来重新部署时参考；届时需重新确认服务器 `.env` 中的 `ADMIN_PASSWORD` 等变量，
+> 并改用 `/ready` 作为健康检查端点。
 
 ### Render.com（PaaS 一键部署）
 
@@ -181,7 +196,10 @@ sudo bash /root/JinGui/server_deploy.sh
 | `AI_MODEL` | 模型名称 | `deepseek-chat` |
 | `ALT_MODELS` | 备用模型列表（逗号分隔） | 空 |
 | `DATA_DIR` | 数据库存放目录 | `backend/data/` |
-| `ADMIN_PASSWORD` | 管理员密码 | `jingui2026` |
+| `ADMIN_PASSWORD` | 管理员密码（**必须设置**；无内置默认值，未设置时管理端一律拒绝登录） | 无 |
+| `SESSION_SECRET` | 训练会话归属令牌的 HMAC 密钥（留空则复用 `ADMIN_PASSWORD`） | 空 |
+| `CORS_ORIGINS` | 允许的跨域来源，逗号分隔（默认不放行任何跨域；前后端同源部署无需配置） | 空 |
+| `DISABLE_DOCS` | 设为 `1` 关闭 `/docs`、`/redoc`、`/openapi.json` | 空 |
 | `LOG_FORMAT` | 日志格式（`json` 为 JSON 格式） | 可读格式 |
 
 ## License
